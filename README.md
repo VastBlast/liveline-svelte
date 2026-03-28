@@ -1,6 +1,6 @@
 # liveline-svelte
 
-`liveline-svelte` is a standalone Svelte fork of the original [liveline](https://github.com/benjitaylor/liveline) project by Benji Taylor, maintained by VastBlast.
+`liveline-svelte` is a standalone Svelte fork of the original [liveline](https://github.com/benjitaylor/liveline).
 
 Real-time animated charts for Svelte. Line, multi-series, and candlestick modes, canvas-rendered, 60fps, no CSS imports.
 
@@ -8,6 +8,14 @@ Real-time animated charts for Svelte. Line, multi-series, and candlestick modes,
 
 ```bash
 pnpm add liveline-svelte
+```
+
+```
+yarn add liveline-svelte
+```
+
+```bash
+npm install liveline-svelte
 ```
 
 Peer dependency: `svelte ^5`.

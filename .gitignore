@@ -8,3 +8,9 @@ dev-dist/
 *.tsbuildinfo
 dev/showcase.*
 dev/multiline.*
+
+# Secrets / local agent config
+.env
+.env.*
+!.env.example
+.claude/settings.local.json

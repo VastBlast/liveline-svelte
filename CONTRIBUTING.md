@@ -2,7 +2,7 @@
 
 Thanks for your interest in contributing!
 
-This repository is the Svelte fork maintained by VastBlast and based on the original Liveline project by Benji Taylor.
+`liveline-svelte` is an independent Svelte 5 chart library maintained by VastBlast. It began as a fork of Benji Taylor's Liveline and now has its own API, priorities, and release cycle. Contributions are evaluated for this library's Svelte use cases; matching the original project 1:1 is not a requirement.
 
 ## Local Development
 
@@ -22,7 +22,7 @@ Open an issue first, especially for larger changes. It helps talk through the ap
 ## What's Harder to Merge
 
 - **New props and options** — The API surface is intentionally small. New props need to earn their place.
-- **More configuration** — Opinionated defaults over flexibility.
+- **Redundant configuration** — Prefer focused options that solve real use cases and leave application-specific decisions to consumers.
 - **Non-canvas rendering** — Liveline is canvas-only by design.
 
 ## Code Style

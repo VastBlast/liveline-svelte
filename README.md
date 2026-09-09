@@ -1,6 +1,8 @@
 # liveline-svelte
 
-`liveline-svelte` is a standalone Svelte fork of the original [liveline](https://github.com/benjitaylor/liveline).
+`liveline-svelte` is an independently developed chart library for Svelte 5.
+
+It began as a Svelte fork of [Liveline](https://github.com/benjitaylor/liveline) by Benji Taylor and now follows its own direction. APIs, features, and behavior evolve around Svelte and its use cases; maintaining 1:1 parity or compatibility with the original project is not a direct goal. Use this repository's documentation and releases when integrating the library.
 
 Real-time animated charts for Svelte. Line, multi-series, and candlestick modes, canvas-rendered, 60fps, no CSS imports.
 
@@ -264,7 +266,7 @@ When `series` is provided, Liveline disables single-series badge, fill, and mome
 - Liveline ships as a Svelte 5 component library and forwards standard root `div` attributes.
 - The package has no runtime dependencies beyond `svelte`.
 - The drawing engine stays framework-neutral and runs outside Svelte’s templating work, which keeps updates cheap even under rapid tick streams.
-- This repository is the independently maintained `liveline-svelte` fork by VastBlast, based on the original Liveline work by Benji Taylor.
+- The project builds on Benji Taylor's original Liveline work. Original attribution is preserved in [LICENSE](./LICENSE).
 
 ## Development
 

@@ -159,6 +159,7 @@
 
 <svelte:head>
   <title>Liveline for Svelte</title>
+  <meta name="description" content="Independent real-time charts for Svelte 5. Originally forked from Benji Taylor's Liveline, now developed independently without a 1:1 compatibility goal." />
   <meta name="theme-color" content={theme === 'light' ? '#ffffff' : '#111111'} />
 </svelte:head>
 
@@ -443,7 +444,7 @@
     </main>
 
     <footer>
-      <span>Liveline for Svelte</span>
+      <span>Svelte 5 project</span>
       <div><span>MIT licensed</span><a href="https://github.com/VastBlast/liveline-svelte">View source {@render icon('arrow')}</a></div>
     </footer>
   </div>

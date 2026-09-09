@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "type": "module",
   "packageManager": "pnpm@12.3.4",
-  "description": "Svelte fork of Liveline — real-time animated charts with line, candlestick, and multi-series modes",
+  "description": "Independent real-time chart library for Svelte 5, with animated line, candlestick, and multi-series modes. Originally forked from Liveline.",
   "keywords": [
     "svelte",
     "chart",
@@ -20,7 +20,7 @@
   "author": "VastBlast",
   "contributors": [
     "Benji Taylor (original Liveline project)",
-    "VastBlast (Svelte fork and ongoing maintenance)"
+    "VastBlast (independent Svelte library development and maintenance)"
   ],
   "repository": {
     "type": "git",

@@ -3,11 +3,11 @@ dist/
 .pnpm-store/
 .svelte-kit/
 dev-dist/
+build/
+.wrangler/
 *.log
 .DS_Store
 *.tsbuildinfo
-dev/showcase.*
-dev/multiline.*
 
 # Secrets / local agent config
 .env

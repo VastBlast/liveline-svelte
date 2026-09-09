@@ -4,6 +4,10 @@ Thanks for your interest in contributing!
 
 This repository is the Svelte fork maintained by VastBlast and based on the original Liveline project by Benji Taylor.
 
+## Local Development
+
+Keep library code in `src/lib/` and demo-only code in `src/routes/`. See the [development guide](README.md#development) for setup, validation commands, and Cloudflare deployment settings.
+
 ## Before You Start
 
 Open an issue first, especially for larger changes. It helps talk through the approach and avoids wasted effort.

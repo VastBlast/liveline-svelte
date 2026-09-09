@@ -2,6 +2,7 @@
   "name": "liveline-svelte",
   "version": "0.0.1",
   "type": "module",
+  "packageManager": "pnpm@12.3.4",
   "description": "Svelte fork of Liveline — real-time animated charts with line, candlestick, and multi-series modes",
   "keywords": [
     "svelte",
@@ -43,29 +44,36 @@
     "dist",
     "!dist/**/*.test.*",
     "!dist/**/*.spec.*",
-    "src",
+    "src/lib",
     "!src/**/*.test.*",
     "!src/**/*.spec.*",
     "README.md",
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=24"
   },
   "scripts": {
-    "build": "svelte-package --input src --output dist",
-    "dev": "vite --config dev/vite.config.ts",
+    "build": "pnpm build:site && pnpm package",
+    "build:site": "vite build",
+    "dev": "vite dev",
+    "preview": "vite preview",
+    "prepare": "svelte-kit sync",
+    "package": "svelte-kit sync && svelte-package",
+    "prepack": "pnpm package",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check:types": "svelte-check --tsconfig tsconfig.json",
+    "check:types": "svelte-kit sync && svelte-check --config ./vite.config.ts --tsconfig ./tsconfig.json",
     "check:lint": "oxlint",
     "check": "pnpm check:types && pnpm check:lint",
-    "prepublishOnly": "pnpm check && pnpm test && pnpm build"
+    "prepublishOnly": "pnpm check && pnpm test"
   },
   "peerDependencies": {
     "svelte": "^5.0.0"
   },
   "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/kit": "^2.70.3",
     "@sveltejs/package": "^2.5.8",
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@types/node": "^22.20.1",

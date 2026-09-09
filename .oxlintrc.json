@@ -7,6 +7,9 @@
   "ignorePatterns": [
     "**/node_modules/**",
     "**/dist/**",
+    "**/build/**",
+    "**/.svelte-kit/**",
+    "**/.wrangler/**",
     "testing/**",
     "apps/*/testing/**",
     ".agents/**",

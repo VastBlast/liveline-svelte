@@ -261,3 +261,43 @@ When `series` is provided, Liveline disables single-series badge, fill, and mome
 - The package has no runtime dependencies beyond `svelte`.
 - The drawing engine stays framework-neutral and runs outside Svelte’s templating work, which keeps updates cheap even under rapid tick streams.
 - This repository is the independently maintained `liveline-svelte` fork by VastBlast, based on the original Liveline work by Benji Taylor.
+
+## Development
+
+Use Node.js 24 and pnpm 12, then start the showcase:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+Open the local URL printed by Vite (normally `http://localhost:5173/`). The root page showcases streaming line, multi-series, and candlestick charts, theme and appearance controls, and loading, empty, and paused states. Its data is simulated; no API keys or external feed are needed.
+
+```text
+src/lib/        Library components, public types, drawing engine, and unit tests
+src/routes/     SvelteKit showcase page and demo helpers
+src/app.html    Demo HTML template
+vite.config.ts  SvelteKit, static adapter, preprocessing, and package alias
+wrangler.jsonc  Cloudflare static asset configuration
+dist/           Generated npm package
+build/          Prerendered static showcase
+```
+
+The demo imports from `liveline-svelte`, just like a consumer. The alias in `vite.config.ts` resolves that name to `src/lib/index.ts` for Vite and TypeScript, so library edits update the demo without a separate build. `svelte-package` builds only `src/lib`; the demo is excluded from the published package.
+
+```bash
+pnpm check       # Svelte/TypeScript and lint checks
+pnpm test        # Library unit tests
+pnpm package     # Build the library into dist/
+pnpm build:site  # Prerender the static showcase into build/
+pnpm build       # Build both the showcase and the library
+pnpm preview     # Preview the built showcase locally
+```
+
+### Demo deployment
+
+Connect this repository to a Cloudflare Worker named `liveline-svelte`. Set the root directory to the repository root, use `pnpm build:site` as the build command, and keep `npx wrangler deploy` as the deploy command. The included `wrangler.jsonc` serves `build/` as [static assets](https://developers.cloudflare.com/workers/static-assets/). No Worker script, server runtime, or Wrangler dependency is needed.
+
+For Cloudflare Pages, use the same `pnpm build:site` build command and set the build output directory to `build`. Select the **None** framework preset if needed to enter these settings manually.
+
+Set `PNPM_VERSION=12.3.4` in Cloudflare's build environment. The `.node-version` file selects Node.js 24 for the build.

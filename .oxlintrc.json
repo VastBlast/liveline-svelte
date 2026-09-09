@@ -57,6 +57,8 @@
     "oxc/approx-constant": "error",
     "oxc/bad-bitwise-operator": "error",
     "oxc/misrefactored-assign-op": "error",
+    // Spline buffers are preallocated and fully initialized before use.
+    "unicorn/no-new-array": "off",
     "unicorn/prefer-includes": "error",
     "unicorn/explicit-length-check": "error",
     "unicorn/no-useless-undefined": "error",

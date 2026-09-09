@@ -1,4 +1,4 @@
-import type { LivelinePalette, Padding } from '../types'
+import type { LivelinePalette, ChartLayout } from '../types'
 import { drawSpline } from '../math/spline'
 import { loadingY, loadingBreath, LOADING_AMPLITUDE_RATIO, LOADING_SCROLL_SPEED } from './loadingShape'
 
@@ -12,14 +12,14 @@ import { loadingY, loadingBreath, LOADING_AMPLITUDE_RATIO, LOADING_SCROLL_SPEED 
  */
 export function drawEmpty(
   ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  pad: Required<Padding>,
+  { w, h, pad }: Pick<ChartLayout, 'w' | 'h' | 'pad'>,
   palette: LivelinePalette,
-  alpha: number = 1,
-  now_ms: number = 0,
-  skipLine: boolean = false,
-  emptyText?: string,
+  { alpha = 1, now_ms = 0, skipLine = false, emptyText }: {
+    alpha?: number
+    now_ms?: number
+    skipLine?: boolean
+    emptyText?: string
+  } = {},
 ): void {
   const chartW = w - pad.left - pad.right
   const chartH = h - pad.top - pad.bottom

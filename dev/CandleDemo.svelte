@@ -34,7 +34,7 @@
   }
 
   $effect(() => {
-    candleWidth
+    void candleWidth
     rebuildCandles()
   })
 

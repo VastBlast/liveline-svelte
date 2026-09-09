@@ -1,4 +1,4 @@
-import type { LivelinePoint, LivelinePalette, LivelineSeries, Momentum, ReferenceLine, HoverPoint, Padding, ChartLayout, OrderbookData, DegenOptions, BadgeVariant, CandlePoint } from './types'
+import type { LivelinePoint, LivelinePalette, Momentum, ReferenceLine, HoverPoint, Padding, ChartLayout, OrderbookData, DegenOptions, BadgeVariant, CandlePoint } from './types'
 import { lerp } from './math/lerp'
 import { computeRange } from './math/range'
 import { detectMomentum } from './math/momentum'
@@ -122,7 +122,6 @@ const LINE_ADAPTIVE_BOOST = 0.2
 const LINE_SNAP_THRESHOLD = 0.001
 const RANGE_LERP_SPEED = 0.15
 const RANGE_ADAPTIVE_BOOST = 0.2
-const CANDLE_BUFFER = 0.05
 const CANDLE_BUFFER_NO_BADGE = 0.015
 
 // --- Extracted helper functions (pure computation, called inside draw loop) ---
@@ -132,14 +131,35 @@ interface WindowTransState {
   rangeFromMin: number; rangeFromMax: number; rangeToMin: number; rangeToMax: number
 }
 
+interface WindowTransitionOptions {
+  displayWindow: number
+  displayMin: number
+  displayMax: number
+  now_ms: number
+  now: number
+  buffer: number
+}
+
+interface RangeUpdateOptions {
+  rangeInited: boolean
+  displayMin: number
+  displayMax: number
+  isTransitioning: boolean
+  windowTransProgress: number
+  chartH: number
+  dt: number
+}
+
 /** Lerp display value with adaptive speed — slow for big jumps, fast for small ticks. */
 function computeAdaptiveSpeed(
   value: number,
   displayValue: number,
-  displayMin: number,
-  displayMax: number,
-  lerpSpeed: number,
-  noMotion: boolean,
+  { displayMin, displayMax, lerpSpeed, noMotion }: {
+    displayMin: number
+    displayMax: number
+    lerpSpeed: number
+    noMotion: boolean
+  },
 ): number {
   const valGap = Math.abs(value - displayValue)
   const prevRange = displayMax - displayMin || 1
@@ -151,15 +171,9 @@ function computeAdaptiveSpeed(
 function updateWindowTransition(
   cfg: EngineConfig,
   wt: WindowTransState,
-  displayWindow: number,
-  displayMin: number,
-  displayMax: number,
-  noMotion: boolean,
-  now_ms: number,
-  now: number,
-  points: LivelinePoint[],
-  smoothValue: number,
-  buffer: number,
+  {
+    displayWindow, displayMin, displayMax, noMotion, now_ms, now, points, smoothValue, buffer,
+  }: WindowTransitionOptions & { noMotion: boolean; points: LivelinePoint[]; smoothValue: number },
 ): { windowSecs: number; windowTransProgress: number } {
   if (wt.to !== cfg.windowSecs) {
     wt.from = displayWindow
@@ -208,23 +222,16 @@ function updateWindowTransition(
 /** Smooth Y range with lerp. During window transitions, interpolates between pre-computed ranges. */
 function updateRange(
   computedRange: { min: number; max: number },
-  rangeInited: boolean,
-  targetMin: number,
-  targetMax: number,
-  displayMin: number,
-  displayMax: number,
-  isTransitioning: boolean,
-  windowTransProgress: number,
   wt: WindowTransState,
-  adaptiveSpeed: number,
-  chartH: number,
-  dt: number,
-): { minVal: number; maxVal: number; valRange: number; targetMin: number; targetMax: number; displayMin: number; displayMax: number; rangeInited: boolean } {
+  {
+    rangeInited, displayMin, displayMax, isTransitioning, windowTransProgress, adaptiveSpeed,
+    chartH, dt,
+  }: RangeUpdateOptions & { adaptiveSpeed: number },
+): { minVal: number; maxVal: number; valRange: number; displayMin: number; displayMax: number; rangeInited: boolean } {
   if (!rangeInited) {
     return {
       minVal: computedRange.min, maxVal: computedRange.max,
       valRange: (computedRange.max - computedRange.min) || 0.001,
-      targetMin: computedRange.min, targetMax: computedRange.max,
       displayMin: computedRange.min, displayMax: computedRange.max,
       rangeInited: true,
     }
@@ -233,48 +240,41 @@ function updateRange(
   if (isTransitioning) {
     displayMin = wt.rangeFromMin + (wt.rangeToMin - wt.rangeFromMin) * windowTransProgress
     displayMax = wt.rangeFromMax + (wt.rangeToMax - wt.rangeFromMax) * windowTransProgress
-    targetMin = computedRange.min
-    targetMax = computedRange.max
   } else {
     const curRange = displayMax - displayMin
-    targetMin = computedRange.min
-    targetMax = computedRange.max
-    displayMin = lerp(displayMin, targetMin, adaptiveSpeed, dt)
-    displayMax = lerp(displayMax, targetMax, adaptiveSpeed, dt)
+    displayMin = lerp(displayMin, computedRange.min, adaptiveSpeed, dt)
+    displayMax = lerp(displayMax, computedRange.max, adaptiveSpeed, dt)
     const pxThreshold = 0.5 * curRange / chartH || 0.001
-    if (Math.abs(displayMin - targetMin) < pxThreshold) displayMin = targetMin
-    if (Math.abs(displayMax - targetMax) < pxThreshold) displayMax = targetMax
+    if (Math.abs(displayMin - computedRange.min) < pxThreshold) displayMin = computedRange.min
+    if (Math.abs(displayMax - computedRange.max) < pxThreshold) displayMax = computedRange.max
   }
 
   return {
     minVal: displayMin, maxVal: displayMax,
     valRange: (displayMax - displayMin) || 0.001,
-    targetMin, targetMax, displayMin, displayMax,
+    displayMin, displayMax,
     rangeInited: true,
   }
 }
 
 /** Compute hover position, interpolated value, and scrub amount. */
 function updateHoverState(
-  hoverPixelX: number | null,
-  pad: Required<Padding>,
-  w: number,
-  layout: ChartLayout,
-  now: number,
-  visible: LivelinePoint[],
-  scrubAmount: number,
-  lastHover: { x: number; value: number; time: number } | null,
   cfg: EngineConfig,
-  noMotion: boolean,
-  leftEdge: number,
-  rightEdge: number,
-  chartW: number,
-  dt: number,
+  layout: ChartLayout,
+  { hoverPixelX, now, visible, scrubAmount, lastHover, noMotion }: {
+    hoverPixelX: number | null
+    now: number
+    visible: LivelinePoint[]
+    scrubAmount: number
+    lastHover: { x: number; value: number; time: number } | null
+    noMotion: boolean
+  },
 ): {
   hoverX: number | null; hoverValue: number | null; hoverTime: number | null
   scrubAmount: number; isActiveHover: boolean
   lastHover: { x: number; value: number; time: number } | null
 } {
+  const { pad, w, leftEdge, rightEdge, chartW } = layout
   let hoverValue: number | null = null
   let hoverTime: number | null = null
   let hoverChartX: number | null = null
@@ -325,16 +325,18 @@ function updateHoverState(
 function updateBadgeDOM(
   badge: BadgeEls,
   cfg: EngineConfig,
-  smoothValue: number,
   layout: ChartLayout,
-  momentum: Momentum,
-  badgeY: number | null,
-  badgeColor: { green: number },
-  isWindowTransitioning: boolean,
-  noMotion: boolean,
-  ctx: CanvasRenderingContext2D,
-  dt: number,
-  chartReveal: number = 1,
+  { smoothValue, momentum, badgeY, badgeColor, isWindowTransitioning, noMotion, ctx, dt, chartReveal = 1 }: {
+    smoothValue: number
+    momentum: Momentum
+    badgeY: number | null
+    badgeColor: { green: number }
+    isWindowTransitioning: boolean
+    noMotion: boolean
+    ctx: CanvasRenderingContext2D
+    dt: number
+    chartReveal?: number
+  },
 ): number | null /* updated badgeY */ {
   if (!cfg.showBadge || chartReveal < 0.25) {
     badge.container.style.display = 'none'
@@ -406,7 +408,9 @@ function updateBadgeDOM(
     if (!cfg.showMomentum) {
       fillColor = cfg.palette.line
     } else {
-      const target = momentum === 'up' ? 1 : momentum === 'down' ? 0 : bs.green
+      let target = bs.green
+      if (momentum === 'up') target = 1
+      else if (momentum === 'down') target = 0
       bs.green = noMotion ? target : lerp(bs.green, target, MOMENTUM_COLOR_LERP, dt)
       if (bs.green > 0.99) bs.green = 1
       if (bs.green < 0.01) bs.green = 0
@@ -466,14 +470,8 @@ function candleAtX(
 /** Smooth Y range for candle mode — adaptive speed, no target tracking. */
 function updateCandleRange(
   computedRange: { min: number; max: number },
-  rangeInited: boolean,
-  displayMin: number,
-  displayMax: number,
-  isTransitioning: boolean,
-  windowTransProgress: number,
-  wt: { rangeFromMin: number; rangeFromMax: number; rangeToMin: number; rangeToMax: number },
-  chartH: number,
-  dt: number,
+  wt: WindowTransState,
+  { rangeInited, displayMin, displayMax, isTransitioning, windowTransProgress, chartH, dt }: RangeUpdateOptions,
 ): { minVal: number; maxVal: number; valRange: number; displayMin: number; displayMax: number; rangeInited: boolean } {
   if (!rangeInited) {
     return {
@@ -512,16 +510,10 @@ function updateCandleRange(
 /** Candle window transition — uses candle data instead of line points. */
 function updateCandleWindowTransition(
   targetWindowSecs: number,
-  wt: { from: number; to: number; startMs: number; rangeFromMin: number; rangeFromMax: number; rangeToMin: number; rangeToMax: number },
-  displayWindow: number,
-  displayMin: number,
-  displayMax: number,
-  now_ms: number,
-  now: number,
-  candles: CandlePoint[],
-  liveCandle: CandlePoint | undefined,
-  candleWidth: number,
-  buffer: number,
+  wt: WindowTransState,
+  {
+    displayWindow, displayMin, displayMax, now_ms, now, candles, liveCandle, candleWidth, buffer,
+  }: WindowTransitionOptions & { candles: CandlePoint[]; liveCandle: CandlePoint | undefined; candleWidth: number },
 ): { windowSecs: number; windowTransProgress: number } {
   if (wt.to !== targetWindowSecs) {
     wt.from = displayWindow
@@ -570,12 +562,11 @@ function updateCandleWindowTransition(
 }
 
 export function mountLivelineEngine(
-  canvas: HTMLCanvasElement,
+  canvasElement: HTMLCanvasElement,
   container: HTMLDivElement,
   initialConfig: EngineConfig,
 ): LivelineEngineController {
-  const canvasRef = ref<HTMLCanvasElement | null>(canvas)
-  const containerRef = ref<HTMLDivElement | null>(container)
+  const canvasRef = ref<HTMLCanvasElement | null>(canvasElement)
   const configRef = ref(initialConfig)
   const cleanups: Array<() => void> = []
   let destroyed = false
@@ -586,8 +577,6 @@ export function mountLivelineEngine(
   const seriesAlphaRef = ref<Map<string, number>>(new Map())
   const displayMinRef = ref(0)
   const displayMaxRef = ref(0)
-  const targetMinRef = ref(0)
-  const targetMaxRef = ref(0)
   const rangeInitedRef = ref(false)
   const displayWindowRef = ref(initialConfig.windowSecs)
   const windowTransitionRef = ref({
@@ -857,16 +846,17 @@ export function mountLivelineEngine(
     }
 
     if (!hasData && !useStash && !useMultiStash) {
+      const emptyLayout = { w, h, pad }
       // No chart pipeline — draw loading or empty as the sole visual.
       // Grey loading line for candle mode and multi-series (no single accent color)
       const loadingColor = (isCandle || cfg.isMultiSeries || lastMultiSeriesRef.current.length > 0)
         ? cfg.palette.gridLabel
         : undefined
       if (loadingAlpha > 0.01) {
-        drawLoading(ctx, w, h, pad, cfg.palette, now_ms, loadingAlpha, loadingColor)
+        drawLoading(ctx, emptyLayout, cfg.palette, { now_ms, alpha: loadingAlpha, strokeColor: loadingColor })
       }
       if ((1 - loadingAlpha) > 0.01) {
-        drawEmpty(ctx, w, h, pad, cfg.palette, 1 - loadingAlpha, now_ms, false, cfg.emptyText)
+        drawEmpty(ctx, emptyLayout, cfg.palette, { alpha: 1 - loadingAlpha, now_ms, emptyText: cfg.emptyText })
       }
       // Left-edge fade
       ctx.save()
@@ -979,11 +969,17 @@ export function mountLivelineEngine(
 
       // --- Window transition ---
       const transition = windowTransitionRef.current
-      const windowResult = updateCandleWindowTransition(
-        cfg.windowSecs, transition, displayWindowRef.current,
-        displayMinRef.current, displayMaxRef.current,
-        now_ms, now, effectiveCandles, rawLive, candleWidthSecs, candleBuffer,
-      )
+      const windowResult = updateCandleWindowTransition(cfg.windowSecs, transition, {
+        displayWindow: displayWindowRef.current,
+        displayMin: displayMinRef.current,
+        displayMax: displayMaxRef.current,
+        now_ms,
+        now,
+        candles: effectiveCandles,
+        liveCandle: rawLive,
+        candleWidth: candleWidthSecs,
+        buffer: candleBuffer,
+      })
       displayWindowRef.current = windowResult.windowSecs
       const windowSecs = windowResult.windowSecs
       const windowTransProgress = windowResult.windowTransProgress
@@ -1084,7 +1080,7 @@ export function mountLivelineEngine(
       if (smoothLive && smoothLive.time + displayCandleWidth >= leftEdge && smoothLive.time <= rightEdge) {
         visible.push(smoothLive)
       }
-      let oldVisible: CandlePoint[] = []
+      const oldVisible: CandlePoint[] = []
       if (morphT >= 0 && cwt.oldCandles.length > 0) {
         for (const c of cwt.oldCandles) {
           if (c.time + cwt.oldWidth >= leftEdge && c.time <= rightEdge) oldVisible.push(c)
@@ -1112,12 +1108,15 @@ export function mountLivelineEngine(
         ? computeCandleRange(effectiveVisible)
         : { min: displayMinRef.current, max: displayMaxRef.current }
 
-      const rangeResult = updateCandleRange(
-        computed, rangeInitedRef.current,
-        displayMinRef.current, displayMaxRef.current,
-        isWindowTransitioning, windowTransProgress, transition,
-        chartH, pausedDt,
-      )
+      const rangeResult = updateCandleRange(computed, transition, {
+        rangeInited: rangeInitedRef.current,
+        displayMin: displayMinRef.current,
+        displayMax: displayMaxRef.current,
+        isTransitioning: isWindowTransitioning,
+        windowTransProgress,
+        chartH,
+        dt: pausedDt,
+      })
       if (morphT >= 0) {
         rangeResult.displayMin = cwt.rangeFromMin + (cwt.rangeToMin - cwt.rangeFromMin) * morphT
         rangeResult.displayMax = cwt.rangeFromMax + (cwt.rangeToMax - cwt.rangeFromMax) * morphT
@@ -1320,12 +1319,17 @@ export function mountLivelineEngine(
       if (badgeRef.current) {
         if (lineModeProg > 0.5 && cfg.showBadge) {
           const momentum = detectMomentum(lineVisible)
-          badgeYRef.current = updateBadgeDOM(
-            badgeRef.current, cfg, lineSmoothValue, layout, momentum,
-            badgeYRef.current, badgeColorRef.current,
-            isWindowTransitioning, noMotion, ctx, pausedDt,
+          badgeYRef.current = updateBadgeDOM(badgeRef.current, cfg, layout, {
+            smoothValue: lineSmoothValue,
+            momentum,
+            badgeY: badgeYRef.current,
+            badgeColor: badgeColorRef.current,
+            isWindowTransitioning,
+            noMotion,
+            ctx,
+            dt: pausedDt,
             chartReveal,
-          )
+          })
           // Fade badge in/out with lineModeProg (0.5→1 maps to 0→1)
           const badgeFade = (lineModeProg - 0.5) * 2
           if (badgeRef.current.container.style.display !== 'none') {
@@ -1387,11 +1391,12 @@ export function mountLivelineEngine(
       let dv = displayValuesRef.current.get(s.id)
       if (dv === undefined) dv = s.value
       if (!useMultiStash) {
-        const adaptiveSpeed = computeAdaptiveSpeed(
-          s.value, dv,
-          displayMinRef.current, displayMaxRef.current,
-          cfg.lerpSpeed, noMotion,
-        )
+        const adaptiveSpeed = computeAdaptiveSpeed(s.value, dv, {
+          displayMin: displayMinRef.current,
+          displayMax: displayMaxRef.current,
+          lerpSpeed: cfg.lerpSpeed,
+          noMotion,
+        })
         dv = lerp(dv, s.value, adaptiveSpeed, pausedDt)
         const prevRange = displayMaxRef.current - displayMinRef.current || 1
         if (Math.abs(dv - s.value) < prevRange * VALUE_SNAP_THRESHOLD) dv = s.value
@@ -1414,11 +1419,17 @@ export function mountLivelineEngine(
 
     // Window transition — seed with all series data for accurate range
     const firstData = pausedMultiDataRef.current?.get(firstSeries.id)?.data ?? firstSeries.data
-    const windowResult = updateWindowTransition(
-      cfg, transition, displayWindowRef.current,
-      displayMinRef.current, displayMaxRef.current,
-      noMotion, now_ms, now, firstData, smoothValues.get(firstSeries.id) ?? firstSeries.value, buffer,
-    )
+    const windowResult = updateWindowTransition(cfg, transition, {
+      displayWindow: displayWindowRef.current,
+      displayMin: displayMinRef.current,
+      displayMax: displayMaxRef.current,
+      noMotion,
+      now_ms,
+      now,
+      points: firstData,
+      smoothValue: smoothValues.get(firstSeries.id) ?? firstSeries.value,
+      buffer,
+    })
     // Override range target with union of ALL series (not just first)
     if (transition.startMs > 0 && effectiveMultiSeries.length > 1) {
       const targetRightEdge = now + cfg.windowSecs * buffer
@@ -1480,13 +1491,14 @@ export function mountLivelineEngine(
     }
 
     if (seriesEntries.length === 0) {
+      const emptyLayout = { w, h, pad }
       // No visible data — draw loading/empty fallback (matching single-series behavior)
       // Grey loading line for multi-series (no single accent color to use)
       if (loadingAlpha > 0.01) {
-        drawLoading(ctx, w, h, pad, cfg.palette, now_ms, loadingAlpha, cfg.palette.gridLabel)
+        drawLoading(ctx, emptyLayout, cfg.palette, { now_ms, alpha: loadingAlpha, strokeColor: cfg.palette.gridLabel })
       }
       if ((1 - loadingAlpha) > 0.01) {
-        drawEmpty(ctx, w, h, pad, cfg.palette, 1 - loadingAlpha, now_ms, false, cfg.emptyText)
+        drawEmpty(ctx, emptyLayout, cfg.palette, { alpha: 1 - loadingAlpha, now_ms, emptyText: cfg.emptyText })
       }
       ctx.save()
       ctx.globalCompositeOperation = 'destination-out'
@@ -1504,16 +1516,17 @@ export function mountLivelineEngine(
     // Smooth global range
     const computedRange = { min: isFinite(globalMin) ? globalMin : 0, max: isFinite(globalMax) ? globalMax : 1 }
     const adaptiveSpeed = cfg.lerpSpeed + ADAPTIVE_SPEED_BOOST * 0.5
-    const rangeResult = updateRange(
-      computedRange, rangeInitedRef.current,
-      targetMinRef.current, targetMaxRef.current,
-      displayMinRef.current, displayMaxRef.current,
-      isWindowTransitioning, windowTransProgress, transition,
-      adaptiveSpeed, chartH, pausedDt,
-    )
+    const rangeResult = updateRange(computedRange, transition, {
+      rangeInited: rangeInitedRef.current,
+      displayMin: displayMinRef.current,
+      displayMax: displayMaxRef.current,
+      isTransitioning: isWindowTransitioning,
+      windowTransProgress,
+      adaptiveSpeed,
+      chartH,
+      dt: pausedDt,
+    })
     rangeInitedRef.current = rangeResult.rangeInited
-    targetMinRef.current = rangeResult.targetMin
-    targetMaxRef.current = rangeResult.targetMax
     displayMinRef.current = rangeResult.displayMin
     displayMaxRef.current = rangeResult.displayMax
     const { minVal, maxVal, valRange } = rangeResult
@@ -1583,7 +1596,6 @@ export function mountLivelineEngine(
       hoverTime: drawHoverTime,
       hoverEntries,
       scrubAmount: scrubAmountRef.current,
-      windowSecs,
       formatValue: cfg.formatValue,
       formatTime: cfg.formatTime,
       gridState: gridStateRef.current,
@@ -1604,7 +1616,7 @@ export function mountLivelineEngine(
     if (bgAlpha > 0.01 && revealTarget === 0 && !cfg.loading) {
       const bgEmptyAlpha = (1 - loadingAlpha) * bgAlpha
       if (bgEmptyAlpha > 0.01) {
-        drawEmpty(ctx, w, h, pad, cfg.palette, bgEmptyAlpha, now_ms, true, cfg.emptyText)
+        drawEmpty(ctx, layout, cfg.palette, { alpha: bgEmptyAlpha, now_ms, skipLine: true, emptyText: cfg.emptyText })
       }
     }
 
@@ -1619,11 +1631,12 @@ export function mountLivelineEngine(
     const effectivePoints = useStash ? lastDataRef.current : points
 
     // Adaptive speed + smooth value (freeze lerp when using stashed data)
-    const adaptiveSpeed = computeAdaptiveSpeed(
-      cfg.value, displayValueRef.current,
-      displayMinRef.current, displayMaxRef.current,
-      cfg.lerpSpeed, noMotion,
-    )
+    const adaptiveSpeed = computeAdaptiveSpeed(cfg.value, displayValueRef.current, {
+      displayMin: displayMinRef.current,
+      displayMax: displayMaxRef.current,
+      lerpSpeed: cfg.lerpSpeed,
+      noMotion,
+    })
     if (!useStash) {
       displayValueRef.current = lerp(displayValueRef.current, cfg.value, adaptiveSpeed, pausedDt)
       // Skip snap when pausing — cfg.value keeps changing from the consumer,
@@ -1652,11 +1665,17 @@ export function mountLivelineEngine(
     const transition = windowTransitionRef.current
     if (hasData) frozenNowRef.current = Date.now() / 1000 - timeDebtRef.current
     const now = useStash ? frozenNowRef.current : Date.now() / 1000 - timeDebtRef.current
-    const windowResult = updateWindowTransition(
-      cfg, transition, displayWindowRef.current,
-      displayMinRef.current, displayMaxRef.current,
-      noMotion, now_ms, now, effectivePoints, smoothValue, buffer,
-    )
+    const windowResult = updateWindowTransition(cfg, transition, {
+      displayWindow: displayWindowRef.current,
+      displayMin: displayMinRef.current,
+      displayMax: displayMaxRef.current,
+      noMotion,
+      now_ms,
+      now,
+      points: effectivePoints,
+      smoothValue,
+      buffer,
+    })
     displayWindowRef.current = windowResult.windowSecs
     const windowSecs = windowResult.windowSecs
     const windowTransProgress = windowResult.windowTransProgress
@@ -1683,16 +1702,17 @@ export function mountLivelineEngine(
     // Compute + smooth Y range
     const computedRange = computeRange(visible, smoothValue, cfg.referenceLine?.value, cfg.exaggerate)
     const isWindowTransitioning = transition.startMs > 0
-    const rangeResult = updateRange(
-      computedRange, rangeInitedRef.current,
-      targetMinRef.current, targetMaxRef.current,
-      displayMinRef.current, displayMaxRef.current,
-      isWindowTransitioning, windowTransProgress, transition,
-      adaptiveSpeed, chartH, pausedDt,
-    )
+    const rangeResult = updateRange(computedRange, transition, {
+      rangeInited: rangeInitedRef.current,
+      displayMin: displayMinRef.current,
+      displayMax: displayMaxRef.current,
+      isTransitioning: isWindowTransitioning,
+      windowTransProgress,
+      adaptiveSpeed,
+      chartH,
+      dt: pausedDt,
+    })
     rangeInitedRef.current = rangeResult.rangeInited
-    targetMinRef.current = rangeResult.targetMin
-    targetMaxRef.current = rangeResult.targetMax
     displayMinRef.current = rangeResult.displayMin
     displayMaxRef.current = rangeResult.displayMax
     const { minVal, maxVal, valRange } = rangeResult
@@ -1710,11 +1730,14 @@ export function mountLivelineEngine(
     const momentum: Momentum = cfg.momentumOverride ?? detectMomentum(visible)
 
     // Hover + scrub
-    const hoverResult = updateHoverState(
-      hoverXRef.current, pad, w, layout, now, visible,
-      scrubAmountRef.current, lastHoverRef.current,
-      cfg, noMotion, leftEdge, rightEdge, chartW, dt,
-    )
+    const hoverResult = updateHoverState(cfg, layout, {
+      hoverPixelX: hoverXRef.current,
+      now,
+      visible,
+      scrubAmount: scrubAmountRef.current,
+      lastHover: lastHoverRef.current,
+      noMotion,
+    })
     scrubAmountRef.current = hoverResult.scrubAmount
     lastHoverRef.current = hoverResult.lastHover
     const { hoverX: drawHoverX, hoverValue: drawHoverValue, hoverTime: drawHoverTime } = hoverResult
@@ -1742,7 +1765,6 @@ export function mountLivelineEngine(
       hoverValue: drawHoverValue,
       hoverTime: drawHoverTime,
       scrubAmount: scrubAmountRef.current,
-      windowSecs,
       formatValue: cfg.formatValue,
       formatTime: cfg.formatTime,
       gridState: gridStateRef.current,
@@ -1769,19 +1791,24 @@ export function mountLivelineEngine(
     if (bgAlpha > 0.01 && revealTarget === 0 && !cfg.loading) {
       const bgEmptyAlpha = (1 - loadingAlpha) * bgAlpha
       if (bgEmptyAlpha > 0.01) {
-        drawEmpty(ctx, w, h, pad, cfg.palette, bgEmptyAlpha, now_ms, true, cfg.emptyText)
+        drawEmpty(ctx, layout, cfg.palette, { alpha: bgEmptyAlpha, now_ms, skipLine: true, emptyText: cfg.emptyText })
       }
     }
 
     // Badge (DOM element, floats above container)
     const badge = badgeRef.current
     if (badge) {
-      badgeYRef.current = updateBadgeDOM(
-        badge, cfg, smoothValue, layout, momentum,
-        badgeYRef.current, badgeColorRef.current,
-        isWindowTransitioning, noMotion, ctx, pausedDt,
+      badgeYRef.current = updateBadgeDOM(badge, cfg, layout, {
+        smoothValue,
+        momentum,
+        badgeY: badgeYRef.current,
+        badgeColor: badgeColorRef.current,
+        isWindowTransitioning,
+        noMotion,
+        ctx,
+        dt: pausedDt,
         chartReveal,
-      )
+      })
       // Hide badge during pause — fully fades out as pauseProgress → 1
       if (pauseProgress > 0.01 && badge.container.style.display !== 'none') {
         const base = badge.container.style.opacity ? parseFloat(badge.container.style.opacity) : 1
@@ -1796,8 +1823,8 @@ export function mountLivelineEngine(
       const displayVal = cfg.valueMomentumColor ? Math.abs(smoothValue) : smoothValue
       valEl.textContent = cfg.formatValue(displayVal)
       if (cfg.valueMomentumColor) {
-        const mc = momentum === 'up' ? '#22c55e' : momentum === 'down' ? '#ef4444' : ''
-        if (mc) valEl.style.color = mc
+        if (momentum === 'up') valEl.style.color = '#22c55e'
+        else if (momentum === 'down') valEl.style.color = '#ef4444'
         else valEl.style.removeProperty('color')
       }
     }

@@ -36,11 +36,13 @@ function renderCurve(
   ctx: CanvasRenderingContext2D,
   layout: ChartLayout,
   palette: LivelinePalette,
-  pts: [number, number][],
-  showFill: boolean,
-  lineAlpha: number = 1,
-  fillAlpha: number = 1,
-  strokeColor?: string,
+  { pts, showFill, lineAlpha = 1, fillAlpha = 1, strokeColor }: {
+    pts: [number, number][]
+    showFill: boolean
+    lineAlpha?: number
+    fillAlpha?: number
+    strokeColor?: string
+  },
 ) {
   const { h, pad } = layout
   const baseAlpha = ctx.globalAlpha
@@ -76,20 +78,35 @@ export function drawLine(
   ctx: CanvasRenderingContext2D,
   layout: ChartLayout,
   palette: LivelinePalette,
-  visible: LivelinePoint[],
-  smoothValue: number,
-  now: number,
-  showFill: boolean,
-  scrubX: number | null,
-  scrubAmount: number = 0,
-  chartReveal: number = 1,
-  now_ms: number = 0,
-  colorBlend: number = 1,
-  skipDashLine: boolean = false,
-  fillScale: number = 1,
+  {
+    visible,
+    smoothValue,
+    now,
+    showFill,
+    hoverX,
+    scrubAmount = 0,
+    chartReveal = 1,
+    now_ms = 0,
+    colorBlend = 1,
+    skipDashLine = false,
+    fillScale = 1,
+  }: {
+    visible: LivelinePoint[]
+    smoothValue: number
+    now: number
+    showFill: boolean
+    hoverX: number | null
+    scrubAmount?: number
+    chartReveal?: number
+    now_ms?: number
+    colorBlend?: number
+    skipDashLine?: boolean
+    fillScale?: number
+  },
 ) {
   const { h, pad, toX, toY, chartW, chartH } = layout
   const incomingAlpha = ctx.globalAlpha
+  const scrubX = scrubAmount > 0.05 ? hoverX : null
 
   // Build screen-space points: all historical data stays stable,
   // but the LAST data point uses smoothValue for its Y (so big jumps
@@ -156,6 +173,7 @@ export function drawLine(
     : undefined
 
   const isScrubbing = scrubX !== null
+  const curveOptions = { pts, showFill, lineAlpha, fillAlpha, strokeColor }
 
   // Clip line + fill to chart area — during big value jumps the range
   // lerps smoothly so the line may extend beyond the chart bounds.
@@ -169,21 +187,21 @@ export function drawLine(
     // Full-opacity portion: clipped to LEFT of scrub point
     ctx.save()
     ctx.beginPath()
-    ctx.rect(0, 0, scrubX!, h)
+    ctx.rect(0, 0, scrubX, h)
     ctx.clip()
-    renderCurve(ctx, layout, palette, pts, showFill, lineAlpha, fillAlpha, strokeColor)
+    renderCurve(ctx, layout, palette, curveOptions)
     ctx.restore()
 
     // Dimmed portion: clipped to RIGHT of scrub point
     ctx.save()
     ctx.beginPath()
-    ctx.rect(scrubX!, 0, layout.w - scrubX!, h)
+    ctx.rect(scrubX, 0, layout.w - scrubX, h)
     ctx.clip()
     ctx.globalAlpha = incomingAlpha * (1 - scrubAmount * 0.6)
-    renderCurve(ctx, layout, palette, pts, showFill, lineAlpha, fillAlpha, strokeColor)
+    renderCurve(ctx, layout, palette, curveOptions)
     ctx.restore()
   } else {
-    renderCurve(ctx, layout, palette, pts, showFill, lineAlpha, fillAlpha, strokeColor)
+    renderCurve(ctx, layout, palette, curveOptions)
   }
 
   // Restore from chart-area clip

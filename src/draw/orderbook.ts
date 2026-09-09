@@ -60,10 +60,12 @@ export function drawOrderbook(
   ctx: CanvasRenderingContext2D,
   layout: ChartLayout,
   palette: LivelinePalette,
-  orderbook: OrderbookData,
-  dt: number,
-  state: OrderbookState,
-  swingMagnitude: number,
+  { orderbook, dt, state, swingMagnitude }: {
+    orderbook: OrderbookData
+    dt: number
+    state: OrderbookState
+    swingMagnitude: number
+  },
 ): void {
   const { pad, h, chartH } = layout
   const dtSec = dt / 1000
@@ -79,7 +81,6 @@ export function drawOrderbook(
 
   // Measure orderbook churn: how much total size changed since last frame
   // Normalized by the total size so it's scale-independent
-  const totalSize = bidTotal + askTotal
   const prevTotal = state.prevBidTotal + state.prevAskTotal
   let churnSignal = 0
   if (prevTotal > 0) {
@@ -114,8 +115,8 @@ export function drawOrderbook(
 
     // Check overlap against ALL existing labels near spawn point
     let tooClose = false
-    for (let j = 0; j < state.labels.length; j++) {
-      if (Math.abs(state.labels[j].y - bottomY) < MIN_LABEL_GAP) {
+    for (const label of state.labels) {
+      if (Math.abs(label.y - bottomY) < MIN_LABEL_GAP) {
         tooClose = true
         break
       }
@@ -150,8 +151,7 @@ export function drawOrderbook(
   // Update positions — decelerate as labels rise (fast at bottom, slow at top)
   const range = bottomY - topY
   let writeIdx = 0
-  for (let i = 0; i < state.labels.length; i++) {
-    const l = state.labels[i]
+  for (const l of state.labels) {
     l.life -= dtSec
     if (l.life <= 0) continue
     const yProgress = range > 0 ? (l.y - topY) / range : 1 // 1 at bottom, 0 at top
@@ -171,8 +171,7 @@ export function drawOrderbook(
 
   const outlineColor = `rgb(${bg[0]},${bg[1]},${bg[2]})`
 
-  for (let i = 0; i < state.labels.length; i++) {
-    const l = state.labels[i]
+  for (const l of state.labels) {
     const lifeRatio = l.life / l.maxLife
 
     // Fade in quickly, fade out near top of chart

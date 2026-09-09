@@ -52,7 +52,7 @@
   }
 
   $effect(() => {
-    volatility
+    void volatility
     reset()
   })
 

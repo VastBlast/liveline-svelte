@@ -85,7 +85,10 @@
   let showSeriesToggle = $derived(lastSeriesProp.length > 1)
   let showMomentum = $derived(momentum !== false)
   let momentumOverride = $derived(typeof momentum === 'string' ? momentum : undefined)
-  let defaultRight = $derived(badge ? 80 : grid ? 54 : 12)
+  let defaultRight = $derived.by(() => {
+    if (badge) return 80
+    return grid ? 54 : 12
+  })
   let effectiveWindowSecs = $derived(windows?.length ? activeWindowSecs : windowSecs)
   let cursorStyle = $derived(scrub ? cursor : 'default')
   let hiddenSeriesSet = $derived(new Set(hiddenSeriesIds))
@@ -103,7 +106,7 @@
   })
 
   let multiSeries = $derived.by(() => {
-    if (!seriesProp || !seriesPalettes) return undefined
+    if (!seriesProp || !seriesPalettes) return
     return seriesProp.map((series, index) => ({
       id: series.id,
       data: series.data,
@@ -123,7 +126,7 @@
   })
 
   let degenOptions = $derived.by(() => {
-    if (degenProp == null || degenProp === false) return undefined
+    if (degenProp == null || degenProp === false) return
     return typeof degenProp === 'object' ? degenProp : ({} satisfies DegenOptions)
   })
 
@@ -182,13 +185,19 @@
   }
 
   function baseBarStyle() {
+    let background = 'transparent'
+    let padding = 0
+    if (ws !== 'text') {
+      background = isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)'
+      padding = ws === 'rounded' ? 3 : 2
+    }
     return [
       'position:relative',
       'display:inline-flex',
       `gap:${ws === 'text' ? 4 : 2}px`,
-      `background:${ws === 'text' ? 'transparent' : isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)'}`,
+      `background:${background}`,
       `border-radius:${ws === 'rounded' ? 999 : 6}px`,
-      `padding:${ws === 'text' ? 0 : ws === 'rounded' ? 3 : 2}px`,
+      `padding:${padding}px`,
     ].join(';')
   }
 
@@ -239,17 +248,24 @@
   }
 
   function seriesButtonStyle(isHidden: boolean) {
+    let padding: string
+    if (seriesToggleCompact) padding = ws === 'text' ? '2px 4px' : '5px 7px'
+    else padding = ws === 'text' ? '2px 6px' : '3px 8px'
+    let background = 'transparent'
+    if (!isHidden && ws !== 'text') {
+      background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.035)'
+    }
     return [
       'position:relative',
       'z-index:1',
       'font-size:11px',
-      `padding:${seriesToggleCompact ? (ws === 'text' ? '2px 4px' : '5px 7px') : ws === 'text' ? '2px 6px' : '3px 8px'}`,
+      `padding:${padding}`,
       `border-radius:${ws === 'rounded' ? 999 : 4}px`,
       'border:none',
       'cursor:pointer',
       'font-family:system-ui, -apple-system, sans-serif',
       'font-weight:500',
-      `background:${isHidden ? 'transparent' : ws === 'text' ? 'transparent' : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.035)'}`,
+      `background:${background}`,
       `color:${isHidden ? inactiveColor : activeColor}`,
       `opacity:${isHidden ? 0.4 : 1}`,
       'transition:opacity 0.2s, background 0.15s, color 0.2s',
@@ -273,14 +289,16 @@
   })
 
   $effect(() => {
-    activeWindowSecs
-    windows?.length
+    // Track these inputs before the asynchronous indicator update.
+    void activeWindowSecs
+    void windows?.length
     tick().then(updateWindowIndicator)
   })
 
   $effect(() => {
-    activeMode
-    onModeChange
+    // Track these inputs before the asynchronous indicator update.
+    void activeMode
+    void onModeChange
     tick().then(updateModeIndicator)
   })
 

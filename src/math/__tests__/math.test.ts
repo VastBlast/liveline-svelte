@@ -50,12 +50,12 @@ describe('computeRange', () => {
   })
 
   it('includes current value in range', () => {
-    const { min, max } = computeRange(pts([10, 20]), 25)
+    const { max } = computeRange(pts([10, 20]), 25)
     expect(max).toBeGreaterThan(25)
   })
 
   it('includes reference value in range', () => {
-    const { min, max } = computeRange(pts([10, 20]), 15, 5)
+    const { min } = computeRange(pts([10, 20]), 15, 5)
     expect(min).toBeLessThan(5)
   })
 

@@ -1,4 +1,4 @@
-import type { Momentum, DegenOptions } from '../types'
+import type { DrawOptions } from './index'
 
 interface Particle {
   x: number
@@ -35,13 +35,11 @@ const MAX_BURSTS = 3 // max consecutive fires before requiring a calm period
  */
 export function spawnOnSwing(
   state: ParticleState,
-  momentum: Momentum,
-  dotX: number,
-  dotY: number,
-  swingMagnitude: number,
+  [dotX, dotY]: [number, number],
   accentColor: string,
-  dt: number,
-  options?: DegenOptions,
+  {
+    momentum, swingMagnitude, dt, particleOptions: options,
+  }: Pick<DrawOptions, 'momentum' | 'swingMagnitude' | 'dt' | 'particleOptions'>,
 ): number {
   state.cooldown = Math.max(0, state.cooldown - dt)
 
@@ -110,8 +108,7 @@ export function drawParticles(
   ctx.save()
 
   let writeIdx = 0
-  for (let i = 0; i < state.particles.length; i++) {
-    const p = state.particles[i]
+  for (const p of state.particles) {
     p.life -= dtSec / PARTICLE_LIFETIME
     if (p.life <= 0) continue
 

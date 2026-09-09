@@ -1,6 +1,7 @@
 import type { LivelinePalette, ChartLayout } from '../types'
 import { niceTimeInterval } from '../math/intervals'
 import { lerp } from '../math/lerp'
+import type { DrawOptions } from './index'
 
 export interface TimeAxisState {
   labels: Map<number, { alpha: number; text: string }>
@@ -12,11 +13,9 @@ export function drawTimeAxis(
   ctx: CanvasRenderingContext2D,
   layout: ChartLayout,
   palette: LivelinePalette,
-  windowSecs: number,
-  targetWindowSecs: number,
-  formatTime: (t: number) => string,
-  state: TimeAxisState,
-  dt: number,
+  {
+    targetWindowSecs, formatTime, timeAxisState: state, dt,
+  }: Pick<DrawOptions, 'targetWindowSecs' | 'formatTime' | 'timeAxisState' | 'dt'>,
 ) {
   const { h, pad, leftEdge, rightEdge, toX } = layout
   const chartLeft = pad.left

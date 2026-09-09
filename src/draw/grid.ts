@@ -1,5 +1,6 @@
 import type { LivelinePalette, ChartLayout } from '../types'
 import { lerp } from '../math/lerp'
+import type { DrawOptions } from './index'
 
 /**
  * Pick a nice interval using TradingView's cycling divisor approach.
@@ -49,9 +50,7 @@ export function drawGrid(
   ctx: CanvasRenderingContext2D,
   layout: ChartLayout,
   palette: LivelinePalette,
-  formatValue: (v: number) => string,
-  state: GridState,
-  dt: number,
+  { formatValue, gridState: state, dt }: Pick<DrawOptions, 'formatValue' | 'gridState' | 'dt'>,
 ) {
   const { w, h, pad, valRange, minVal, maxVal, toY } = layout
   const chartH = h - pad.top - pad.bottom
@@ -67,7 +66,7 @@ export function drawGrid(
   const finePx = fine * pxPerUnit
 
   // Target alpha for fine labels — hide when cramped, fade in with space
-  const fineTarget = finePx < 40 ? 0 : finePx >= 60 ? 1 : (finePx - 40) / 20
+  const fineTarget = Math.max(0, Math.min(1, (finePx - 40) / 20))
 
   // Edge fade
   const fadeZone = 32

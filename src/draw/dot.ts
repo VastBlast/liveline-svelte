@@ -16,12 +16,13 @@ function lerpColor(a: [number,number,number], b: [number,number,number], t: numb
 /** Draw the live dot: expanding ring pulse, white outer circle, colored inner dot. */
 export function drawDot(
   ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
+  [x, y]: [number, number],
   palette: LivelinePalette,
-  pulse: boolean = true,
-  scrubAmount: number = 0,
-  now_ms: number = performance.now(),
+  { pulse = true, scrubAmount = 0, now_ms = performance.now() }: {
+    pulse?: boolean
+    scrubAmount?: number
+    now_ms?: number
+  } = {},
 ): void {
   const baseAlpha = ctx.globalAlpha
   const dim = scrubAmount * 0.7
@@ -72,12 +73,13 @@ export function drawDot(
 /** Draw a multi-series endpoint dot with optional pulse ring (colored ring + solid dot, no white outer, no shadow). */
 export function drawMultiDot(
   ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
+  [x, y]: [number, number],
   color: string,
-  pulse: boolean = true,
-  now_ms: number = performance.now(),
-  radius: number = 3,
+  { pulse = true, now_ms = performance.now(), radius = 3 }: {
+    pulse?: boolean
+    now_ms?: number
+    radius?: number
+  } = {},
 ): void {
   const baseAlpha = ctx.globalAlpha
 
@@ -107,10 +109,9 @@ export function drawMultiDot(
 /** Draw a small colored dot for multi-series endpoints (no ring, no pulse, no shadow). */
 export function drawSimpleDot(
   ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
+  [x, y]: [number, number],
   color: string,
-  radius: number = 3,
+  radius = 3,
 ): void {
   ctx.beginPath()
   ctx.arc(x, y, radius, 0, Math.PI * 2)
@@ -121,13 +122,14 @@ export function drawSimpleDot(
 /** Draw momentum arrows (chevrons) next to the dot. */
 export function drawArrows(
   ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  momentum: Momentum,
+  [x, y]: [number, number],
   palette: LivelinePalette,
-  arrows: ArrowState,
-  dt: number,
-  now_ms: number = performance.now(),
+  { momentum, arrowState: arrows, dt, now_ms = performance.now() }: {
+    momentum: Momentum
+    arrowState: ArrowState
+    dt: number
+    now_ms?: number
+  },
 ): void {
   const baseAlpha = ctx.globalAlpha
 

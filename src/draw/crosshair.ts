@@ -1,5 +1,16 @@
 import type { LivelinePalette, ChartLayout } from '../types'
 
+interface CrosshairOptions {
+  hoverX: number
+  hoverTime: number
+  formatValue: (v: number) => string
+  formatTime: (t: number) => string
+  scrubOpacity: number
+  tooltipY?: number
+  liveDotX?: number
+  tooltipOutline?: boolean
+}
+
 export interface MultiSeriesHoverEntry {
   color: string
   label: string
@@ -10,15 +21,10 @@ export function drawCrosshair(
   ctx: CanvasRenderingContext2D,
   layout: ChartLayout,
   palette: LivelinePalette,
-  hoverX: number,
-  hoverValue: number,
-  hoverTime: number,
-  formatValue: (v: number) => string,
-  formatTime: (t: number) => string,
-  scrubOpacity: number,
-  tooltipY?: number,
-  liveDotX?: number,
-  tooltipOutline?: boolean,
+  {
+    hoverX, hoverValue, hoverTime, formatValue, formatTime, scrubOpacity, tooltipY, liveDotX,
+    tooltipOutline,
+  }: CrosshairOptions & { hoverValue: number },
 ) {
   if (scrubOpacity < 0.01) return
 
@@ -102,15 +108,10 @@ export function drawMultiCrosshair(
   ctx: CanvasRenderingContext2D,
   layout: ChartLayout,
   palette: LivelinePalette,
-  hoverX: number,
-  hoverTime: number,
-  entries: MultiSeriesHoverEntry[],
-  formatValue: (v: number) => string,
-  formatTime: (t: number) => string,
-  scrubOpacity: number,
-  tooltipY?: number,
-  tooltipOutline?: boolean,
-  liveDotX?: number,
+  {
+    hoverX, hoverTime, entries, formatValue, formatTime, scrubOpacity, tooltipY, tooltipOutline,
+    liveDotX,
+  }: CrosshairOptions & { entries: MultiSeriesHoverEntry[] },
 ) {
   if (scrubOpacity < 0.01 || entries.length === 0) return
 

@@ -1,4 +1,4 @@
-import type { LivelinePalette, Padding } from '../types'
+import type { LivelinePalette, ChartLayout } from '../types'
 import { drawSpline } from '../math/spline'
 import { loadingY, loadingBreath, LOADING_AMPLITUDE_RATIO, LOADING_SCROLL_SPEED } from './loadingShape'
 
@@ -10,13 +10,13 @@ import { loadingY, loadingBreath, LOADING_AMPLITUDE_RATIO, LOADING_SCROLL_SPEED 
  */
 export function drawLoading(
   ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  pad: Required<Padding>,
+  { w, h, pad }: Pick<ChartLayout, 'w' | 'h' | 'pad'>,
   palette: LivelinePalette,
-  now_ms: number,
-  alpha: number = 1,
-  strokeColor?: string,
+  { now_ms, alpha = 1, strokeColor }: {
+    now_ms: number
+    alpha?: number
+    strokeColor?: string
+  },
 ): void {
   const chartW = w - pad.left - pad.right
   const chartH = h - pad.top - pad.bottom

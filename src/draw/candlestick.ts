@@ -2,6 +2,15 @@ import type { ChartLayout, LivelinePalette, CandlePoint } from '../types'
 
 export type { CandlePoint } from '../types'
 
+interface CandleCrosshairOptions {
+  candle: CandlePoint
+  hoverX: number
+  hoverTime: number
+  formatValue: (v: number) => string
+  formatTime: (t: number) => string
+  opacity: number
+}
+
 const BULL = '#22c55e'
 const BEAR = '#ef4444'
 
@@ -58,7 +67,13 @@ function candleDims(layout: ChartLayout, candleWidthSecs: number) {
  */
 function roundedRect(
   ctx: CanvasRenderingContext2D,
-  x: number, y: number, w: number, h: number, r: number,
+  { x, y, w, h, r }: {
+    x: number
+    y: number
+    w: number
+    h: number
+    r: number
+  },
 ) {
   if (r <= 0 || h < r * 2) {
     ctx.rect(x, y, w, h)
@@ -84,15 +99,27 @@ export function drawCandlesticks(
   ctx: CanvasRenderingContext2D,
   layout: ChartLayout,
   candles: CandlePoint[],
-  candleWidthSecs: number,
-  liveTime: number,
-  now_ms: number,
-  scrubX: number,
-  scrubDim: number,
-  liveAlpha = 1,
-  liveBullBlend = -1,
-  accentColor?: string,
-  accentBlend = 0,
+  {
+    candleWidthSecs,
+    liveTime,
+    now_ms,
+    scrubX,
+    scrubDim,
+    liveAlpha = 1,
+    liveBullBlend = -1,
+    accentColor,
+    accentBlend = 0,
+  }: {
+    candleWidthSecs: number
+    liveTime: number
+    now_ms: number
+    scrubX: number
+    scrubDim: number
+    liveAlpha?: number
+    liveBullBlend?: number
+    accentColor?: string
+    accentBlend?: number
+  },
 ) {
   if (candles.length === 0) return
 
@@ -111,7 +138,8 @@ export function drawCandlesticks(
 
     const isBull = c.close >= c.open
     const isLive = c.time === liveTime
-    let color = isLive && liveBullBlend >= 0 ? blendColor(liveBullBlend) : (isBull ? BULL : BEAR)
+    let color = isBull ? BULL : BEAR
+    if (isLive && liveBullBlend >= 0) color = blendColor(liveBullBlend)
     if (accentColor && accentBlend > 0.01) {
       color = blendToAccent(color, accentColor, accentBlend)
     }
@@ -133,7 +161,13 @@ export function drawCandlesticks(
     // Body geometry
     const bodyTop = toY(Math.max(c.open, c.close))
     const bodyBottom = toY(Math.min(c.open, c.close))
-    const bodyH = Math.max(1, bodyBottom - bodyTop)
+    const body = {
+      x: cx - halfBody,
+      y: bodyTop,
+      w: bodyW,
+      h: Math.max(1, bodyBottom - bodyTop),
+      r: radius,
+    }
 
     // Wicks
     const wickTop = toY(c.high)
@@ -159,7 +193,7 @@ export function drawCandlesticks(
     // Body
     ctx.fillStyle = color
     ctx.beginPath()
-    roundedRect(ctx, cx - halfBody, bodyTop, bodyW, bodyH, radius)
+    roundedRect(ctx, body)
     ctx.fill()
 
     // Live candle glow
@@ -170,7 +204,7 @@ export function drawCandlesticks(
       ctx.shadowBlur = 8
       ctx.fillStyle = color
       ctx.beginPath()
-      roundedRect(ctx, cx - halfBody, bodyTop, bodyW, bodyH, radius)
+      roundedRect(ctx, body)
       ctx.fill()
       ctx.restore()
     }
@@ -186,16 +220,18 @@ export function drawCandlesticks(
 export function drawClosePrice(
   ctx: CanvasRenderingContext2D,
   layout: ChartLayout,
-  palette: LivelinePalette,
   liveCandle: CandlePoint,
-  scrubDim: number,
-  bullBlend = -1,
+  { scrubAmount: scrubDim, liveBullBlend: bullBlend = -1 }: {
+    scrubAmount: number
+    liveBullBlend?: number
+  },
 ) {
   const y = layout.toY(liveCandle.close)
   if (y < layout.pad.top || y > layout.h - layout.pad.bottom) return
 
   const isBull = liveCandle.close >= liveCandle.open
-  const color = bullBlend >= 0 ? blendColor(bullBlend) : (isBull ? BULL : BEAR)
+  let color = isBull ? BULL : BEAR
+  if (bullBlend >= 0) color = blendColor(bullBlend)
 
   const baseAlpha = ctx.globalAlpha
   ctx.save()
@@ -219,12 +255,9 @@ export function drawCandleCrosshair(
   ctx: CanvasRenderingContext2D,
   layout: ChartLayout,
   palette: LivelinePalette,
-  hoverX: number,
-  candle: CandlePoint,
-  hoverTime: number,
-  formatValue: (v: number) => string,
-  formatTime: (t: number) => string,
-  opacity: number,
+  {
+    hoverX, candle, hoverTime, formatValue, formatTime, opacity,
+  }: CandleCrosshairOptions,
 ) {
   if (opacity < 0.01) return
 
@@ -327,12 +360,7 @@ export function drawLineModeCrosshair(
   ctx: CanvasRenderingContext2D,
   layout: ChartLayout,
   palette: LivelinePalette,
-  hoverX: number,
-  value: number,
-  hoverTime: number,
-  formatValue: (v: number) => string,
-  formatTime: (t: number) => string,
-  opacity: number,
+  { hoverX, candle: { close: value }, hoverTime, formatValue, formatTime, opacity }: CandleCrosshairOptions,
 ) {
   if (opacity < 0.01) return
 

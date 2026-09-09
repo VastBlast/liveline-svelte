@@ -17,6 +17,13 @@ const SHAKE_MIN_AMPLITUDE = 0.2
 export const FADE_EDGE_WIDTH = 40
 const CROSSHAIR_FADE_MIN_PX = 5
 
+function computeScrubOpacity(distToLive: number, chartW: number, scrubAmount: number): number {
+  const fadeStart = Math.min(80, chartW * 0.3)
+  if (distToLive < CROSSHAIR_FADE_MIN_PX) return 0
+  if (distToLive >= fadeStart) return scrubAmount
+  return ((distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX)) * scrubAmount
+}
+
 export interface ArrowState { up: number; down: number }
 
 export interface ShakeState {
@@ -42,7 +49,6 @@ export interface DrawOptions {
   hoverValue: number | null
   hoverTime: number | null
   scrubAmount: number // 0 = not scrubbing, 1 = fully scrubbing (lerped)
-  windowSecs: number
   formatValue: (v: number) => string
   formatTime: (t: number) => string
   gridState: GridState
@@ -112,7 +118,7 @@ export function drawFrame(
     if (gridAlpha > 0.01) {
       ctx.save()
       if (gridAlpha < 1) ctx.globalAlpha = gridAlpha
-      drawGrid(ctx, layout, palette, opts.formatValue, opts.gridState, opts.dt)
+      drawGrid(ctx, layout, palette, opts)
       ctx.restore()
     }
   }
@@ -121,13 +127,17 @@ export function drawFrame(
   if (opts.orderbookData && opts.orderbookState && reveal > 0.01) {
     ctx.save()
     if (reveal < 1) ctx.globalAlpha = reveal
-    drawOrderbook(ctx, layout, palette, opts.orderbookData, opts.dt, opts.orderbookState, opts.swingMagnitude)
+    drawOrderbook(ctx, layout, palette, {
+      orderbook: opts.orderbookData,
+      dt: opts.dt,
+      state: opts.orderbookState,
+      swingMagnitude: opts.swingMagnitude,
+    })
     ctx.restore()
   }
 
   // 3. Line + fill (with scrub dimming + reveal morphing)
-  const scrubX = opts.scrubAmount > 0.05 ? opts.hoverX : null
-  const pts = drawLine(ctx, layout, palette, opts.visible, opts.smoothValue, opts.now, opts.showFill, scrubX, opts.scrubAmount, reveal, opts.now_ms)
+  const pts = drawLine(ctx, layout, palette, opts)
 
   // 4. Time axis — same timing as grid
   {
@@ -135,7 +145,7 @@ export function drawFrame(
     if (timeAlpha > 0.01) {
       ctx.save()
       if (timeAlpha < 1) ctx.globalAlpha = timeAlpha
-      drawTimeAxis(ctx, layout, palette, opts.windowSecs, opts.targetWindowSecs, opts.formatTime, opts.timeAxisState, opts.dt)
+      drawTimeAxis(ctx, layout, palette, opts)
       ctx.restore()
     }
   }
@@ -146,11 +156,7 @@ export function drawFrame(
     // 5. Dot — dims during scrub, fades in with reveal (0.3 → 1.0)
     let dotScrub = opts.scrubAmount
     if (opts.hoverX !== null && dotScrub > 0) {
-      const distToLive = lastPt[0] - opts.hoverX
-      const fadeStart = Math.min(80, layout.chartW * 0.3)
-      dotScrub = distToLive < CROSSHAIR_FADE_MIN_PX ? 0
-        : distToLive >= fadeStart ? opts.scrubAmount
-        : ((distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX)) * opts.scrubAmount
+      dotScrub = computeScrubOpacity(lastPt[0] - opts.hoverX, layout.chartW, opts.scrubAmount)
     }
 
     // Dot appears once shape is recognizable (reveal > 0.3)
@@ -159,7 +165,7 @@ export function drawFrame(
     if (dotAlpha > 0.01) {
       ctx.save()
       if (dotAlpha < 1) ctx.globalAlpha = dotAlpha
-      drawDot(ctx, lastPt[0], lastPt[1], palette, showPulse, dotScrub, opts.now_ms)
+      drawDot(ctx, lastPt, palette, { pulse: showPulse, scrubAmount: dotScrub, now_ms: opts.now_ms })
       ctx.restore()
     }
 
@@ -170,20 +176,14 @@ export function drawFrame(
       if (arrowAlpha > 0.01) {
         ctx.save()
         if (arrowAlpha < 1) ctx.globalAlpha = arrowAlpha
-        drawArrows(
-          ctx, lastPt[0], lastPt[1],
-          opts.momentum, palette, opts.arrowState, opts.dt, opts.now_ms,
-        )
+        drawArrows(ctx, lastPt, palette, opts)
         ctx.restore()
       }
     }
 
     // 6. Particles — only when fully revealed
     if (opts.particleState && reveal > 0.9) {
-      const burstIntensity = spawnOnSwing(
-        opts.particleState, opts.momentum, lastPt[0], lastPt[1],
-        opts.swingMagnitude, palette.line, opts.dt, opts.particleOptions,
-      )
+      const burstIntensity = spawnOnSwing(opts.particleState, lastPt, palette.line, opts)
       if (burstIntensity > 0 && shake) {
         shake.amplitude = (3 + opts.swingMagnitude * 4) * burstIntensity
       }
@@ -205,22 +205,20 @@ export function drawFrame(
   // 8. Crosshair — fade out well before reaching live dot
   if (opts.hoverX !== null && opts.hoverValue !== null && opts.hoverTime !== null && pts && pts.length > 0) {
     const lastPt = pts[pts.length - 1]
-    const distToLive = lastPt[0] - opts.hoverX
-    const fadeStart = Math.min(80, layout.chartW * 0.3)
-    const scrubOpacity = distToLive < CROSSHAIR_FADE_MIN_PX ? 0
-      : distToLive >= fadeStart ? opts.scrubAmount
-      : ((distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX)) * opts.scrubAmount
+    const scrubOpacity = computeScrubOpacity(lastPt[0] - opts.hoverX, layout.chartW, opts.scrubAmount)
 
     if (scrubOpacity > 0.01) {
-      drawCrosshair(
-        ctx, layout, palette,
-        opts.hoverX, opts.hoverValue, opts.hoverTime,
-        opts.formatValue, opts.formatTime,
+      drawCrosshair(ctx, layout, palette, {
+        hoverX: opts.hoverX,
+        hoverValue: opts.hoverValue,
+        hoverTime: opts.hoverTime,
+        formatValue: opts.formatValue,
+        formatTime: opts.formatTime,
         scrubOpacity,
-        opts.tooltipY,
-        lastPt[0], // liveDotX — tooltip right edge stops here
-        opts.tooltipOutline,
-      )
+        tooltipY: opts.tooltipY,
+        liveDotX: lastPt[0],
+        tooltipOutline: opts.tooltipOutline,
+      })
     }
   }
 
@@ -250,7 +248,6 @@ export interface MultiSeriesDrawOptions {
   hoverTime: number | null
   hoverEntries: MultiSeriesHoverEntry[]
   scrubAmount: number
-  windowSecs: number
   formatValue: (v: number) => string
   formatTime: (t: number) => string
   gridState: GridState
@@ -297,7 +294,7 @@ export function drawMultiFrame(
     if (gridAlpha > 0.01) {
       ctx.save()
       if (gridAlpha < 1) ctx.globalAlpha = gridAlpha
-      drawGrid(ctx, layout, palette, opts.formatValue, opts.gridState, opts.dt)
+      drawGrid(ctx, layout, palette, opts)
       ctx.restore()
     }
   }
@@ -306,7 +303,6 @@ export function drawMultiFrame(
   // During reverse morph, secondary lines fade out so only one remains at
   // chartReveal=0 — prevents alpha compounding from multiple overlapping strokes
   // looking brighter than the single standalone loading squiggly.
-  const scrubX = opts.scrubAmount > 0.05 ? opts.hoverX : null
   const allPts: { pts: [number, number][]; palette: LivelinePalette; label?: string; alpha: number }[] = []
   for (let si = 0; si < opts.series.length; si++) {
     const s = opts.series[si]
@@ -316,12 +312,16 @@ export function drawMultiFrame(
     if (combinedAlpha < 0.01) continue
     ctx.save()
     if (combinedAlpha < 1) ctx.globalAlpha = combinedAlpha
-    const pts = drawLine(
-      ctx, layout, s.palette, s.visible, s.smoothValue, opts.now,
-      false, // no fill
-      scrubX, opts.scrubAmount,
-      reveal, opts.now_ms,
-    )
+    const pts = drawLine(ctx, layout, s.palette, {
+      visible: s.visible,
+      smoothValue: s.smoothValue,
+      now: opts.now,
+      showFill: false,
+      hoverX: opts.hoverX,
+      scrubAmount: opts.scrubAmount,
+      chartReveal: reveal,
+      now_ms: opts.now_ms,
+    })
     ctx.restore()
     if (pts && pts.length > 0) {
       allPts.push({ pts, palette: s.palette, label: s.label, alpha: seriesAlpha })
@@ -334,7 +334,7 @@ export function drawMultiFrame(
     if (timeAlpha > 0.01) {
       ctx.save()
       if (timeAlpha < 1) ctx.globalAlpha = timeAlpha
-      drawTimeAxis(ctx, layout, palette, opts.windowSecs, opts.targetWindowSecs, opts.formatTime, opts.timeAxisState, opts.dt)
+      drawTimeAxis(ctx, layout, palette, opts)
       ctx.restore()
     }
   }
@@ -355,9 +355,9 @@ export function drawMultiFrame(
 
       // Use pulsing dot when enabled and series is mostly visible
       if (showPulse && entry.alpha > 0.5) {
-        drawMultiDot(ctx, lastPt[0], lastPt[1], entry.palette.line, true, opts.now_ms, 3)
+        drawMultiDot(ctx, lastPt, entry.palette.line, { now_ms: opts.now_ms })
       } else {
-        drawSimpleDot(ctx, lastPt[0], lastPt[1], entry.palette.line, 3)
+        drawSimpleDot(ctx, lastPt, entry.palette.line)
       }
 
       // Label at endpoint (right of dot — layout reserves space via labelReserve)
@@ -391,23 +391,20 @@ export function drawMultiFrame(
       if (lastX > maxLiveDotX) maxLiveDotX = lastX
     }
 
-    const distToLive = maxLiveDotX - opts.hoverX
-    const fadeStart = Math.min(80, layout.chartW * 0.3)
-    const scrubOpacity = distToLive < CROSSHAIR_FADE_MIN_PX ? 0
-      : distToLive >= fadeStart ? opts.scrubAmount
-      : ((distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX)) * opts.scrubAmount
+    const scrubOpacity = computeScrubOpacity(maxLiveDotX - opts.hoverX, layout.chartW, opts.scrubAmount)
 
     if (scrubOpacity > 0.01) {
-      drawMultiCrosshair(
-        ctx, layout, palette,
-        opts.hoverX, opts.hoverTime,
-        opts.hoverEntries,
-        opts.formatValue, opts.formatTime,
+      drawMultiCrosshair(ctx, layout, palette, {
+        hoverX: opts.hoverX,
+        hoverTime: opts.hoverTime,
+        entries: opts.hoverEntries,
+        formatValue: opts.formatValue,
+        formatTime: opts.formatTime,
         scrubOpacity,
-        opts.tooltipY,
-        opts.tooltipOutline,
-        maxLiveDotX,
-      )
+        tooltipY: opts.tooltipY,
+        tooltipOutline: opts.tooltipOutline,
+        liveDotX: maxLiveDotX,
+      })
     }
   }
 }
@@ -494,7 +491,7 @@ export function drawCandleFrame(
   if (opts.showGrid && gridAlpha > 0.01) {
     ctx.save()
     if (gridAlpha < 1) ctx.globalAlpha = gridAlpha
-    drawGrid(ctx, layout, palette, opts.formatValue, opts.gridState, opts.dt)
+    drawGrid(ctx, layout, palette, opts)
     ctx.restore()
   }
 
@@ -502,15 +499,21 @@ export function drawCandleFrame(
   //    Returns pts for dot position.
   let linePts: [number, number][] | undefined
   if (lp > 0.01 && opts.lineVisible.length >= 2) {
-    const scrubX = opts.scrubAmount > 0.05 ? opts.hoverX : null
-    ctx.save()
+      ctx.save()
     ctx.globalAlpha = lp
-    linePts = drawLine(
-      ctx, layout, palette, opts.lineVisible, opts.lineSmoothValue, opts.now,
-      opts.lineModeProg > 0.01, scrubX, opts.scrubAmount, opts.chartReveal, opts.now_ms,
-      colorBlend, !fullLineMode,
-      opts.lineModeProg, // fillScale — fill fades smoothly with line mode transition
-    )
+    linePts = drawLine(ctx, layout, palette, {
+      visible: opts.lineVisible,
+      smoothValue: opts.lineSmoothValue,
+      now: opts.now,
+      showFill: opts.lineModeProg > 0.01,
+      hoverX: opts.hoverX,
+      scrubAmount: opts.scrubAmount,
+      chartReveal: opts.chartReveal,
+      now_ms: opts.now_ms,
+      colorBlend,
+      skipDashLine: !fullLineMode,
+      fillScale: opts.lineModeProg,
+    })
     ctx.restore()
   }
 
@@ -524,7 +527,7 @@ export function drawCandleFrame(
     if (lp < 0.99) {
       ctx.save()
       ctx.globalAlpha = closeAlpha * (1 - lp)
-      drawClosePrice(ctx, layout, palette, closeSource, opts.scrubAmount, opts.liveBullBlend)
+      drawClosePrice(ctx, layout, closeSource, opts)
       ctx.restore()
     }
     // Accent-colored dash line (fades in with lineModeProg)
@@ -571,32 +574,32 @@ export function drawCandleFrame(
     ctx.beginPath()
     ctx.rect(pad.left - 1, pad.top, chartW + 2, chartH)
     ctx.clip()
-    const accentCol = lp > 0.01 ? palette.line : undefined
+    const candleOptions = {
+      candleWidthSecs: opts.displayCandleWidth,
+      liveTime: opts.liveCandle?.time ?? -1,
+      now_ms: opts.now_ms,
+      scrubX: opts.hoverX ?? 0,
+      scrubDim: opts.scrubAmount,
+      liveAlpha: opts.liveBirthAlpha,
+      liveBullBlend: opts.liveBullBlend,
+      accentColor: lp > 0.01 ? palette.line : undefined,
+      accentBlend: lp,
+    }
     if (opts.morphT >= 0 && revealOld.length > 0) {
       ctx.globalAlpha = (1 - opts.morphT) * candleAlpha
-      drawCandlesticks(
-        ctx, layout, revealOld, opts.oldWidth,
-        -1, opts.now_ms, opts.hoverX ?? 0, opts.scrubAmount,
-        1, -1, accentCol, lp,
-      )
+      drawCandlesticks(ctx, layout, revealOld, {
+        ...candleOptions,
+        candleWidthSecs: opts.oldWidth,
+        liveTime: -1,
+        liveAlpha: 1,
+        liveBullBlend: -1,
+      })
       ctx.globalAlpha = opts.morphT * candleAlpha
-      drawCandlesticks(
-        ctx, layout, revealCandles, opts.displayCandleWidth,
-        opts.liveCandle?.time ?? -1, opts.now_ms,
-        opts.hoverX ?? 0, opts.scrubAmount,
-        opts.liveBirthAlpha, opts.liveBullBlend,
-        accentCol, lp,
-      )
+      drawCandlesticks(ctx, layout, revealCandles, candleOptions)
       ctx.globalAlpha = 1
     } else {
       if (candleAlpha < 1) ctx.globalAlpha = candleAlpha
-      drawCandlesticks(
-        ctx, layout, revealCandles, opts.displayCandleWidth,
-        opts.liveCandle?.time ?? -1, opts.now_ms,
-        opts.hoverX ?? 0, opts.scrubAmount,
-        opts.liveBirthAlpha, opts.liveBullBlend,
-        accentCol, lp,
-      )
+      drawCandlesticks(ctx, layout, revealCandles, candleOptions)
     }
     ctx.restore()
   }
@@ -609,7 +612,7 @@ export function drawCandleFrame(
     if (dotAlpha > 0.01) {
       ctx.save()
       ctx.globalAlpha = dotAlpha
-      drawDot(ctx, lastPt[0], lastPt[1], palette, showPulse, opts.scrubAmount, opts.now_ms)
+      drawDot(ctx, lastPt, palette, { pulse: showPulse, scrubAmount: opts.scrubAmount, now_ms: opts.now_ms })
       ctx.restore()
     }
   }
@@ -619,7 +622,7 @@ export function drawCandleFrame(
   if (timeAlpha > 0.01) {
     ctx.save()
     if (timeAlpha < 1) ctx.globalAlpha = timeAlpha
-    drawTimeAxis(ctx, layout, palette, opts.targetWindowSecs, opts.targetWindowSecs, opts.formatTime, opts.timeAxisState, opts.dt)
+    drawTimeAxis(ctx, layout, palette, opts)
     ctx.restore()
   }
 
@@ -641,27 +644,25 @@ export function drawCandleFrame(
     if (bgAlpha > 0.01) {
       const bgEmptyAlpha = (1 - opts.loadingAlpha) * bgAlpha
       if (bgEmptyAlpha > 0.01) {
-        drawEmpty(ctx, w, h, pad, palette, bgEmptyAlpha, opts.now_ms, true, opts.emptyText)
+        drawEmpty(ctx, layout, palette, { alpha: bgEmptyAlpha, now_ms: opts.now_ms, skipLine: true, emptyText: opts.emptyText })
       }
     }
   }
 
   // 9. Crosshair — only when mostly revealed (70%+)
   if (opts.chartReveal > 0.7 && opts.hoveredCandle && opts.hoverX !== null && opts.scrubAmount > 0.01) {
+    const crosshairOptions = {
+      hoverX: opts.hoverX,
+      candle: opts.hoveredCandle,
+      hoverTime: opts.hoverTime ?? 0,
+      formatValue: opts.formatValue,
+      formatTime: opts.formatTime,
+      opacity: opts.scrubAmount,
+    }
     if (opts.lineModeProg > 0.5) {
-      drawLineModeCrosshair(
-        ctx, layout, palette,
-        opts.hoverX, opts.hoveredCandle.close, opts.hoverTime ?? 0,
-        opts.formatValue, opts.formatTime,
-        opts.scrubAmount,
-      )
+      drawLineModeCrosshair(ctx, layout, palette, crosshairOptions)
     } else {
-      drawCandleCrosshair(
-        ctx, layout, palette,
-        opts.hoverX, opts.hoveredCandle, opts.hoverTime ?? 0,
-        opts.formatValue, opts.formatTime,
-        opts.scrubAmount,
-      )
+      drawCandleCrosshair(ctx, layout, palette, crosshairOptions)
     }
   }
 }

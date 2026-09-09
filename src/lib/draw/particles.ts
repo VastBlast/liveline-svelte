@@ -43,14 +43,12 @@ export function spawnOnSwing(
 ): number {
   state.cooldown = Math.max(0, state.cooldown - dt)
 
-  if (momentum === 'flat') return 0
-  if (state.cooldown > 0) return 0
-
-  // Below threshold — reset burst counter (calm period)
-  if (swingMagnitude < MAGNITUDE_THRESHOLD) {
+  // Calm periods reset the burst counter, including during cooldown.
+  if (momentum === 'flat' || swingMagnitude < MAGNITUDE_THRESHOLD) {
     state.burstCount = 0
     return 0
   }
+  if (state.cooldown > 0) return 0
 
   // Down-momentum disabled by default
   if (momentum === 'down' && options?.downMomentum !== true) return 0
@@ -104,6 +102,7 @@ export function drawParticles(
   if (state.particles.length === 0) return
 
   const dtSec = dt / 1000
+  const drag = Math.pow(0.95, dt / 16.67)
 
   ctx.save()
 
@@ -114,8 +113,8 @@ export function drawParticles(
 
     p.x += p.vx * dtSec
     p.y += p.vy * dtSec
-    p.vx *= 0.95  // less drag — particles travel further
-    p.vy *= 0.95
+    p.vx *= drag
+    p.vy *= drag
 
     ctx.globalAlpha = p.life * 0.55
     ctx.fillStyle = p.color

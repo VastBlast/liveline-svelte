@@ -1,8 +1,34 @@
 import type { LivelinePoint } from '../types'
 
+/** Copy the inclusive time range from points sorted by ascending time. */
+export function sliceTimeRange<T extends { time: number }>(
+  points: readonly T[],
+  from: number,
+  to: number,
+): T[] {
+  if (!(from <= to)) return []
+
+  let lo = 0
+  let hi = points.length
+  while (lo < hi) {
+    const mid = lo + Math.floor((hi - lo) / 2)
+    if (points[mid].time < from) lo = mid + 1
+    else hi = mid
+  }
+  const start = lo
+
+  hi = points.length
+  while (lo < hi) {
+    const mid = lo + Math.floor((hi - lo) / 2)
+    if (points[mid].time <= to) lo = mid + 1
+    else hi = mid
+  }
+  return points.slice(start, lo)
+}
+
 /**
  * Binary search to find interpolated value at a given time.
- * Returns null if time is outside data range.
+ * Clamps outside the data range; returns null for empty data.
  */
 export function interpolateAtTime(
   points: LivelinePoint[],

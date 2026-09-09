@@ -2,7 +2,7 @@ import type { LivelinePoint, LivelinePalette, Momentum, ReferenceLine, HoverPoin
 import { lerp } from './math/lerp'
 import { computeRange } from './math/range'
 import { detectMomentum } from './math/momentum'
-import { interpolateAtTime } from './math/interpolate'
+import { interpolateAtTime, sliceTimeRange } from './math/interpolate'
 import { getDpr, applyDpr } from './canvas/dpr'
 import { drawFrame, drawCandleFrame, drawMultiFrame, FADE_EDGE_WIDTH } from './draw'
 import type { MultiSeriesEntry } from './draw'
@@ -183,12 +183,7 @@ function updateWindowTransition(
     wt.rangeFromMax = displayMax
     const targetRightEdge = now + cfg.windowSecs * buffer
     const targetLeftEdge = targetRightEdge - cfg.windowSecs
-    const targetVisible: LivelinePoint[] = []
-    for (const p of points) {
-      if (p.time >= targetLeftEdge - 2 && p.time <= targetRightEdge) {
-        targetVisible.push(p)
-      }
-    }
+    const targetVisible = sliceTimeRange(points, targetLeftEdge - 2, targetRightEdge)
     if (targetVisible.length > 0) {
       const targetRange = computeRange(targetVisible, smoothValue, cfg.referenceLine?.value, cfg.exaggerate)
       wt.rangeToMin = targetRange.min
@@ -349,7 +344,7 @@ function updateBadgeDOM(
   const { w, h, pad } = layout
 
   const text = cfg.formatValue(smoothValue)
-  badge.text.textContent = text
+  if (badge.text.textContent !== text) badge.text.textContent = text
   badge.text.style.font = cfg.palette.labelFont
   badge.text.style.lineHeight = `${BADGE_LINE_H}px`
   const tailLen = cfg.badgeTail ? BADGE_TAIL_LEN : 0
@@ -523,12 +518,7 @@ function updateCandleWindowTransition(
     wt.rangeFromMax = displayMax
     const targetRightEdge = now + targetWindowSecs * buffer
     const targetLeftEdge = targetRightEdge - targetWindowSecs
-    const targetVisible: CandlePoint[] = []
-    for (const c of candles) {
-      if (c.time + candleWidth >= targetLeftEdge && c.time <= targetRightEdge) {
-        targetVisible.push(c)
-      }
-    }
+    const targetVisible = sliceTimeRange(candles, targetLeftEdge - candleWidth, targetRightEdge)
     if (liveCandle && liveCandle.time + candleWidth >= targetLeftEdge && liveCandle.time <= targetRightEdge) {
       targetVisible.push(liveCandle)
     }
@@ -584,7 +574,7 @@ export function mountLivelineEngine(
     rangeFromMin: 0, rangeFromMax: 0, rangeToMin: 0, rangeToMax: 0,
   })
   const arrowStateRef = ref({ up: 0, down: 0 })
-  const gridStateRef = ref({ interval: 0, labels: new Map<number, number>() }) // labels: key=Math.round(val*1000), value=alpha
+  const gridStateRef = ref({ interval: 0, labels: new Map<number, number>() })
   const timeAxisStateRef = ref({ labels: new Map<number, { alpha: number; text: string }>() })
   const orderbookStateRef = ref(createOrderbookState())
   const particleStateRef = ref(createParticleState())
@@ -681,7 +671,8 @@ export function mountLivelineEngine(
 
     // Delta time for frame-rate-independent lerps
     const now_ms = performance.now()
-    const dt = lastFrameRef.current ? Math.min(now_ms - lastFrameRef.current, MAX_DELTA_MS) : 16.67
+    const elapsedMs = lastFrameRef.current ? now_ms - lastFrameRef.current : 16.67
+    const dt = Math.min(elapsedMs, MAX_DELTA_MS)
     lastFrameRef.current = now_ms
 
     // Resize canvas if needed
@@ -714,9 +705,9 @@ export function mountLivelineEngine(
 
     if (isCandle) {
       if (cfg.paused && pausedCandlesRef.current === null && (cfg.candles?.length ?? 0) > 0) {
-        pausedCandlesRef.current = cfg.candles!.slice()
-        pausedLiveRef.current = cfg.liveCandle ?? null
-        pausedLineDataRef.current = cfg.lineData?.slice() ?? null
+        pausedCandlesRef.current = cfg.candles!.map(candle => ({ ...candle }))
+        pausedLiveRef.current = cfg.liveCandle ? { ...cfg.liveCandle } : null
+        pausedLineDataRef.current = cfg.lineData?.map(point => ({ ...point })) ?? null
         pausedLineValueRef.current = cfg.lineValue ?? null
       }
       if (!cfg.paused) {
@@ -729,7 +720,7 @@ export function mountLivelineEngine(
       if (cfg.paused && pausedMultiDataRef.current === null) {
         const snap = new Map<string, { data: LivelinePoint[]; value: number }>()
         for (const s of cfg.multiSeries) {
-          if (s.data.length >= 2) snap.set(s.id, { data: s.data.slice(), value: s.value })
+          if (s.data.length >= 2) snap.set(s.id, { data: s.data.map(point => ({ ...point })), value: s.value })
         }
         if (snap.size > 0) pausedMultiDataRef.current = snap
       }
@@ -738,7 +729,7 @@ export function mountLivelineEngine(
       }
     } else {
       if (cfg.paused && pausedDataRef.current === null && cfg.data.length >= 2) {
-        pausedDataRef.current = cfg.data.slice()
+        pausedDataRef.current = cfg.data.map(point => ({ ...point }))
       }
       if (!cfg.paused) {
         pausedDataRef.current = null
@@ -747,7 +738,9 @@ export function mountLivelineEngine(
 
     const points = isCandle ? ([] as LivelinePoint[]) : (pausedDataRef.current ?? cfg.data)
     const effectiveCandles = isCandle ? (pausedCandlesRef.current ?? (cfg.candles ?? [])) : ([] as CandlePoint[])
-    const hasMultiData = cfg.isMultiSeries && cfg.multiSeries ? cfg.multiSeries.some(s => s.data.length >= 2) : false
+    const hasMultiData = cfg.isMultiSeries && cfg.multiSeries
+      ? cfg.multiSeries.some(s => (pausedMultiDataRef.current?.get(s.id)?.data ?? s.data).length >= 2)
+      : false
     const hasData = isCandle ? effectiveCandles.length >= 2 : (hasMultiData || points.length >= 2)
     const pad = cfg.padding
     const chartH = h - pad.top - pad.bottom
@@ -762,7 +755,9 @@ export function mountLivelineEngine(
     const pauseProgress = pauseProgressRef.current
     const pausedDt = dt * (1 - pauseProgress)
 
-    const realDtSec = dt / 1000
+    // Paused time must include slow frames and time spent in a hidden tab.
+    // Keep the capped delta only for animation interpolation.
+    const realDtSec = elapsedMs / 1000
     timeDebtRef.current += realDtSec * pauseProgress
     // Only drain time debt when unpausing — during pausing, let it
     // accumulate freely so the chart decelerates smoothly
@@ -928,10 +923,7 @@ export function mountLivelineEngine(
         const curWindow = displayWindowRef.current
         const re = now + curWindow * candleBuffer
         const le = re - curWindow
-        const targetVis: CandlePoint[] = []
-        for (const c of effectiveCandles) {
-          if (c.time + candleWidthSecs >= le && c.time <= re) targetVis.push(c)
-        }
+        const targetVis = sliceTimeRange(effectiveCandles, le - candleWidthSecs, re)
         if (rawLive) targetVis.push(rawLive)
         if (targetVis.length > 0) {
           const tr = computeCandleRange(targetVis)
@@ -1073,19 +1065,13 @@ export function mountLivelineEngine(
       }
 
       // --- Build visible candles ---
-      const visible: CandlePoint[] = []
-      for (const c of effectiveCandles) {
-        if (c.time + candleWidthSecs >= leftEdge && c.time <= rightEdge) visible.push(c)
-      }
+      const visible = sliceTimeRange(effectiveCandles, leftEdge - candleWidthSecs, rightEdge)
       if (smoothLive && smoothLive.time + displayCandleWidth >= leftEdge && smoothLive.time <= rightEdge) {
         visible.push(smoothLive)
       }
-      const oldVisible: CandlePoint[] = []
-      if (morphT >= 0 && cwt.oldCandles.length > 0) {
-        for (const c of cwt.oldCandles) {
-          if (c.time + cwt.oldWidth >= leftEdge && c.time <= rightEdge) oldVisible.push(c)
-        }
-      }
+      const oldVisible = morphT >= 0
+        ? sliceTimeRange(cwt.oldCandles, leftEdge - cwt.oldWidth, rightEdge)
+        : []
 
       // Stash visible candles for reverse morph
       if (hasData) {
@@ -1162,6 +1148,12 @@ export function mountLivelineEngine(
       } else if (isActiveHover && hoverPx !== null) {
         drawHoverTime = layout.leftEdge + ((hoverPx - pad.left) / chartW) * (layout.rightEdge - layout.leftEdge)
         lastHoverRef.current = { x: hoverPx, value: hoveredCandle?.close ?? 0, time: drawHoverTime }
+        cfg.onHover?.({
+          time: drawHoverTime,
+          value: hoveredCandle!.close,
+          x: hoverPx,
+          y: layout.toY(hoveredCandle!.close),
+        })
       }
 
       let drawCandles = effectiveVisible
@@ -1216,8 +1208,7 @@ export function mountLivelineEngine(
 
         lineVisible = []
         let refIdx = 0
-        for (const pt of effectiveLineData) {
-          if (pt.time < leftEdge || pt.time > rightEdge) continue
+        for (const pt of sliceTimeRange(effectiveLineData, leftEdge, rightEdge)) {
           while (refIdx < closeRefs.length - 2 && closeRefs[refIdx + 1].t < pt.time) refIdx++
           let interpClose: number
           if (closeRefs.length === 0) {
@@ -1377,6 +1368,9 @@ export function mountLivelineEngine(
       for (const key of displayValuesRef.current.keys()) {
         if (!currentIds.has(key)) displayValuesRef.current.delete(key)
       }
+      for (const key of seriesAlphaRef.current.keys()) {
+        if (!currentIds.has(key)) seriesAlphaRef.current.delete(key)
+      }
     }
 
     // Use first series data for window transition seeding
@@ -1389,17 +1383,18 @@ export function mountLivelineEngine(
     const smoothValues = new Map<string, number>()
     for (const s of effectiveMultiSeries) {
       let dv = displayValuesRef.current.get(s.id)
-      if (dv === undefined) dv = s.value
+      const value = pausedMultiDataRef.current?.get(s.id)?.value ?? s.value
+      if (dv === undefined) dv = value
       if (!useMultiStash) {
-        const adaptiveSpeed = computeAdaptiveSpeed(s.value, dv, {
+        const adaptiveSpeed = computeAdaptiveSpeed(value, dv, {
           displayMin: displayMinRef.current,
           displayMax: displayMaxRef.current,
           lerpSpeed: cfg.lerpSpeed,
           noMotion,
         })
-        dv = lerp(dv, s.value, adaptiveSpeed, pausedDt)
+        dv = lerp(dv, value, adaptiveSpeed, pausedDt)
         const prevRange = displayMaxRef.current - displayMinRef.current || 1
-        if (Math.abs(dv - s.value) < prevRange * VALUE_SNAP_THRESHOLD) dv = s.value
+        if (Math.abs(dv - value) < prevRange * VALUE_SNAP_THRESHOLD) dv = value
         displayValuesRef.current.set(s.id, dv)
       }
       smoothValues.set(s.id, dv)
@@ -1439,10 +1434,7 @@ export function mountLivelineEngine(
       for (const s of effectiveMultiSeries) {
         const sData = pausedMultiDataRef.current?.get(s.id)?.data ?? s.data
         const sv = smoothValues.get(s.id) ?? s.value
-        const targetVisible: LivelinePoint[] = []
-        for (const p of sData) {
-          if (p.time >= targetLeftEdge - 2 && p.time <= targetRightEdge) targetVisible.push(p)
-        }
+        const targetVisible = sliceTimeRange(sData, targetLeftEdge - 2, targetRightEdge)
         if (targetVisible.length > 0) {
           const range = computeRange(targetVisible, sv, cfg.referenceLine?.value, cfg.exaggerate)
           if (range.min < unionMin) unionMin = range.min
@@ -1472,10 +1464,7 @@ export function mountLivelineEngine(
     for (const s of effectiveMultiSeries) {
       const snap = pausedMultiDataRef.current?.get(s.id)
       const seriesData = snap?.data ?? s.data
-      const visible: LivelinePoint[] = []
-      for (const p of seriesData) {
-        if (p.time >= leftEdge - 2 && p.time <= filterRight) visible.push(p)
-      }
+      const visible = sliceTimeRange(seriesData, leftEdge - 2, filterRight)
       const sv = smoothValues.get(s.id) ?? s.value
       const alpha = seriesAlphas.get(s.id) ?? 1
       if (visible.length >= 2) {
@@ -1686,12 +1675,7 @@ export function mountLivelineEngine(
     // Filter visible points — when pausing, contract right edge to `now`
     // so new data (with real-time timestamps) can't appear past the live dot
     const filterRight = rightEdge - (rightEdge - now) * pauseProgress
-    const visible: LivelinePoint[] = []
-    for (const p of effectivePoints) {
-      if (p.time >= leftEdge - 2 && p.time <= filterRight) {
-        visible.push(p)
-      }
-    }
+    const visible = sliceTimeRange(effectivePoints, leftEdge - 2, filterRight)
 
     if (visible.length < 2) {
       if (badgeRef.current) badgeRef.current.container.style.display = 'none'
@@ -1819,13 +1803,12 @@ export function mountLivelineEngine(
     // --- Live value display (DOM element, updated imperatively to avoid template churn) ---
     const valEl = cfg.valueDisplayElement
     if (valEl) {
-      // When momentum colour is on, strip sign — colour already communicates direction
-      const displayVal = cfg.valueMomentumColor ? Math.abs(smoothValue) : smoothValue
-      valEl.textContent = cfg.formatValue(displayVal)
-      if (cfg.valueMomentumColor) {
-        if (momentum === 'up') valEl.style.color = '#22c55e'
-        else if (momentum === 'down') valEl.style.color = '#ef4444'
-        else valEl.style.removeProperty('color')
+      const text = cfg.formatValue(smoothValue)
+      if (valEl.textContent !== text) valEl.textContent = text
+      if (cfg.valueMomentumColor && momentum !== 'flat') {
+        valEl.style.setProperty('--liveline-momentum-color', momentum === 'up' ? '#22c55e' : '#ef4444')
+      } else {
+        valEl.style.removeProperty('--liveline-momentum-color')
       }
     }
 
@@ -1930,6 +1913,10 @@ export function mountLivelineEngine(
   return {
     update(nextConfig) {
       configRef.current = nextConfig
+      if (!nextConfig.scrub && hoverXRef.current !== null) {
+        hoverXRef.current = null
+        nextConfig.onHover?.(null)
+      }
     },
     destroy() {
       if (destroyed) return

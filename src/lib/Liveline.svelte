@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, tick } from 'svelte'
+  import { onDestroy, tick, untrack } from 'svelte'
 
   import { mountLivelineEngine, type LivelineEngineController } from './useLivelineEngine'
   import { resolveSeriesPalettes, resolveTheme, SERIES_COLORS } from './theme'
@@ -59,6 +59,7 @@
     lineValue,
     onModeChange,
     onSeriesToggle,
+    showSeriesToggle: showSeriesToggleProp = true,
     seriesToggleCompact = false,
     lineWidth,
     class: className = '',
@@ -73,16 +74,16 @@
   let indicatorStyle = $state<{ left: number; width: number } | null>(null)
   let modeIndicatorStyle = $state<{ left: number; width: number } | null>(null)
   let hiddenSeriesIds = $state<string[]>([])
-  let activeWindowSecs = $state((() => windows?.[0]?.secs ?? windowSecs)())
-  let lastSeriesProp: LivelineSeries[] = $state.raw((() => seriesProp ?? [])())
+  let activeWindowSecs = $state(untrack(() => windows?.[0]?.secs ?? windowSecs))
+  let lastSeriesProp: LivelineSeries[] = $state.raw(untrack(() => seriesProp ?? []))
 
   let controller: LivelineEngineController | null = null
 
   let isDark = $derived(theme === 'dark')
   let ws = $derived(windowStyle ?? 'default')
-  let activeMode = $derived(lineMode ? 'line' : 'candle')
+  let activeMode = $derived(mode === 'line' || lineMode ? 'line' : 'candle')
   let isMultiSeries = $derived((seriesProp?.length ?? 0) > 0)
-  let showSeriesToggle = $derived(lastSeriesProp.length > 1)
+  let showSeriesToggle = $derived(showSeriesToggleProp && lastSeriesProp.length > 1)
   let showMomentum = $derived(momentum !== false)
   let momentumOverride = $derived(typeof momentum === 'string' ? momentum : undefined)
   let defaultRight = $derived.by(() => {
@@ -102,7 +103,13 @@
 
   let seriesPalettes = $derived.by(() => {
     if (!seriesProp?.length) return null
-    return resolveSeriesPalettes(seriesProp, theme)
+    const palettes = resolveSeriesPalettes(seriesProp, theme)
+    if (lineWidth != null) {
+      for (const seriesPalette of palettes.values()) {
+        seriesPalette.lineWidth = lineWidth
+      }
+    }
+    return palettes
   })
 
   let multiSeries = $derived.by(() => {
@@ -176,8 +183,10 @@
       return
     }
 
-    const totalSeries = seriesProp?.length ?? 0
-    const visibleCount = totalSeries - hiddenSeriesIds.length
+    const visibleCount = seriesProp?.reduce(
+      (count, series) => count + (hiddenSeriesSet.has(series.id) ? 0 : 1),
+      0,
+    ) ?? 0
     if (visibleCount <= 1) return
 
     hiddenSeriesIds = [...hiddenSeriesIds, id]
@@ -317,7 +326,9 @@
   })
 
   $effect(() => {
-    if (!canvasEl || !containerEl) return
+    const canvas = canvasEl
+    const container = containerEl
+    if (!canvas || !container) return
 
     const nextConfig = {
       data,
@@ -361,12 +372,15 @@
       hiddenSeriesIds: hiddenSeriesSet,
     }
 
-    if (!controller) {
-      controller = mountLivelineEngine(canvasEl, containerEl, nextConfig)
-      return
-    }
+    // Engine callbacks must not become dependencies of this configuration effect.
+    untrack(() => {
+      if (!controller) {
+        controller = mountLivelineEngine(canvas, container, nextConfig)
+        return
+      }
 
-    controller.update(nextConfig)
+      controller.update(nextConfig)
+    })
   })
 
   onDestroy(() => {
@@ -378,7 +392,9 @@
 {#if showValue}
   <span
     bind:this={valueDisplayEl}
-    style={`display:block;font-size:20px;font-weight:500;font-family:"SF Mono", Menlo, monospace;color:${isDark ? 'rgba(255,255,255,0.85)' : '#111'};transition:color 0.3s;letter-spacing:-0.01em;margin-bottom:8px;padding-top:4px;padding-left:${pad.left}px;`}
+    style="display:block;font-size:20px;font-weight:500;font-family:'SF Mono', Menlo, monospace;transition:color 0.3s;letter-spacing:-0.01em;margin-bottom:8px;padding-top:4px;"
+    style:color={`var(--liveline-momentum-color, ${isDark ? 'rgba(255,255,255,0.85)' : '#111'})`}
+    style:padding-left={`${pad.left}px`}
   ></span>
 {/if}
 
@@ -394,6 +410,7 @@
           <button
             type="button"
             data-window-secs={option.secs}
+            aria-pressed={option.secs === activeWindowSecs}
             onclick={() => {
               activeWindowSecs = option.secs
               onWindowChange?.(option.secs)
@@ -415,6 +432,7 @@
         <button
           type="button"
           aria-label="Show line chart"
+          aria-pressed={activeMode === 'line'}
           data-mode="line"
           onclick={() => onModeChange('line')}
           style={modeButtonStyle()}
@@ -433,6 +451,7 @@
         <button
           type="button"
           aria-label="Show candlestick chart"
+          aria-pressed={activeMode === 'candle'}
           data-mode="candle"
           onclick={() => onModeChange('candle')}
           style={modeButtonStyle()}
@@ -477,6 +496,8 @@
 
     {#if showSeriesToggle}
       <div
+        aria-hidden={!isMultiSeries ? true : undefined}
+        inert={!isMultiSeries}
         style={`display:inline-flex;gap:${ws === 'text' ? 4 : 2}px;background:${ws === 'text' ? 'transparent' : isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)'};border-radius:${ws === 'rounded' ? 999 : 6}px;padding:${ws === 'text' ? 0 : ws === 'rounded' ? 3 : 2}px;opacity:${isMultiSeries ? 1 : 0};transition:opacity 0.4s;pointer-events:${isMultiSeries ? 'auto' : 'none'};`}
       >
         {#each lastSeriesProp as series, index (series.id)}
@@ -486,6 +507,7 @@
           <button
             type="button"
             aria-label={`Toggle ${series.label ?? series.id}`}
+            aria-pressed={!isHidden}
             onclick={() => handleSeriesToggle(series.id)}
             style={seriesButtonStyle(isHidden)}
           >

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { lerp } from '../lerp'
 import { computeRange } from '../range'
 import { detectMomentum } from '../momentum'
-import { interpolateAtTime } from '../interpolate'
+import { interpolateAtTime, sliceTimeRange } from '../interpolate'
 import { niceTimeInterval } from '../intervals'
 import type { LivelinePoint } from '../../types'
 
@@ -100,6 +100,39 @@ describe('detectMomentum', () => {
 })
 
 // -- interpolateAtTime --
+
+describe('sliceTimeRange', () => {
+  const points = [
+    { time: 0, value: 10 },
+    { time: 1, value: 11 },
+    { time: 1, value: 12 },
+    { time: 3, value: 13 },
+    { time: 3, value: 14 },
+    { time: 10, value: 15 },
+  ]
+
+  it('includes all repeated timestamps at both boundaries', () => {
+    expect(sliceTimeRange(points, 1, 3)).toEqual(points.slice(1, 5))
+    expect(sliceTimeRange(points, 1, 1)).toEqual(points.slice(1, 3))
+  })
+
+  it('matches an inclusive filter across gaps and outside the data range', () => {
+    for (const from of [-Infinity, -1, 0, 0.5, 1, 2, 3, 4, 10, 11, Infinity]) {
+      for (const to of [-Infinity, -1, 0, 0.5, 1, 2, 3, 4, 10, 11, Infinity]) {
+        expect(sliceTimeRange(points, from, to)).toEqual(
+          points.filter((point) => point.time >= from && point.time <= to),
+        )
+      }
+    }
+  })
+
+  it('returns an independent array and handles empty input', () => {
+    const visible = sliceTimeRange(points, -Infinity, Infinity)
+    expect(visible).toEqual(points)
+    expect(visible).not.toBe(points)
+    expect(sliceTimeRange([], 0, 1)).toEqual([])
+  })
+})
 
 describe('interpolateAtTime', () => {
   const pts: LivelinePoint[] = [

@@ -120,6 +120,7 @@ export type LivelineProps = Omit<SvelteHTMLElements['div'], 'children'> & {
   lineValue?: number              // Current tick value for density transition
   onModeChange?: (mode: 'line' | 'candle') => void  // Built-in toggle callback
   onSeriesToggle?: (id: string, visible: boolean) => void  // Multi-series toggle callback
+  showSeriesToggle?: boolean  // Show built-in series toggle controls (default: true)
   seriesToggleCompact?: boolean  // Show only colored dots (no labels) in series toggle (default: false)
 }
 

@@ -27,8 +27,8 @@ Peer dependency: `svelte ^5`.
   import { Liveline } from 'liveline-svelte'
   import type { LivelinePoint } from 'liveline-svelte'
 
-  let data: LivelinePoint[] = []
-  let value = 0
+  let data = $state.raw<LivelinePoint[]>([])
+  let value = $state(0)
 </script>
 
 <div style="height: 320px;">
@@ -36,7 +36,9 @@ Peer dependency: `svelte ^5`.
 </div>
 ```
 
-The component fills its parent container. Set a height on the parent, then pass a growing `data` array and the latest `value`. Liveline handles the interpolation and drawing loop internally.
+The component fills its parent container. Set a height on the parent, then pass a growing `data` array and the latest `value`. Liveline handles the interpolation and drawing loop internally. Points and candles should be ordered by ascending `time` (Unix seconds).
+
+The examples use `$state.raw` for arrays that are replaced on updates, such as `data = [...data, point]`, avoiding deep proxy overhead for historical data. Use `$state` instead if you prefer to mutate arrays or individual points in place.
 
 ## Props
 
@@ -95,6 +97,7 @@ When `mode="candle"`, pass `candles`, `liveCandle`, and `candleWidth`. If you al
 |------|------|---------|-------------|
 | `series` | `LivelineSeries[]` | — | Overlapping line series `{ id, data, value, color, label? }` |
 | `onSeriesToggle` | `(id, visible) => void` | — | Called when a built-in series chip is toggled |
+| `showSeriesToggle` | `boolean` | `true` | Show built-in series chips; disable to manage series externally |
 | `seriesToggleCompact` | `boolean` | `false` | Dot-only series toggle chips |
 
 When `series` is provided, Liveline disables single-series badge, fill, and momentum affordances automatically.
@@ -150,8 +153,8 @@ When `series` is provided, Liveline disables single-series badge, fill, and mome
   import { Liveline } from 'liveline-svelte'
   import type { LivelinePoint } from 'liveline-svelte'
 
-  let data: LivelinePoint[] = []
-  let value = 0
+  let data = $state.raw<LivelinePoint[]>([])
+  let value = $state(0)
 </script>
 
 <div style="height: 300px;">
@@ -166,11 +169,11 @@ When `series` is provided, Liveline disables single-series badge, fill, and mome
   import { Liveline } from 'liveline-svelte'
   import type { CandlePoint, LivelinePoint } from 'liveline-svelte'
 
-  let ticks: LivelinePoint[] = []
-  let value = 0
-  let candles: CandlePoint[] = []
-  let liveCandle: CandlePoint | null = null
-  let lineMode = true
+  let ticks = $state.raw<LivelinePoint[]>([])
+  let value = $state(0)
+  let candles = $state.raw<CandlePoint[]>([])
+  let liveCandle = $state.raw<CandlePoint>()
+  let lineMode = $state(true)
 </script>
 
 <div style="height: 360px;">
@@ -203,15 +206,15 @@ When `series` is provided, Liveline disables single-series badge, fill, and mome
   import { Liveline } from 'liveline-svelte'
   import type { LivelinePoint, LivelineSeries } from 'liveline-svelte'
 
-  let alpha: LivelinePoint[] = []
-  let beta: LivelinePoint[] = []
-  let alphaValue = 0
-  let betaValue = 0
+  let alpha = $state.raw<LivelinePoint[]>([])
+  let beta = $state.raw<LivelinePoint[]>([])
+  let alphaValue = $state(0)
+  let betaValue = $state(0)
 
-  let series: LivelineSeries[] = [
+  let series = $derived<LivelineSeries[]>([
     { id: 'alpha', label: 'Alpha', data: alpha, value: alphaValue, color: '#3b82f6' },
     { id: 'beta', label: 'Beta', data: beta, value: betaValue, color: '#f97316' }
-  ]
+  ])
 </script>
 
 <div style="height: 320px;">
@@ -226,12 +229,13 @@ When `series` is provided, Liveline disables single-series badge, fill, and mome
 ```svelte
 <script lang="ts">
   import { Liveline, LivelineTransition } from 'liveline-svelte'
+  import type { CandlePoint, LivelinePoint } from 'liveline-svelte'
 
-  let active: 'line' | 'candle' = 'line'
-  let data = []
-  let value = 0
-  let candles = []
-  let liveCandle = null
+  let active = $state<'line' | 'candle'>('line')
+  let data = $state.raw<LivelinePoint[]>([])
+  let value = $state(0)
+  let candles = $state.raw<CandlePoint[]>([])
+  let liveCandle = $state.raw<CandlePoint>()
 </script>
 
 <div style="height: 360px;">

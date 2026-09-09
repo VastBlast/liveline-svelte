@@ -1,0 +1,71 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "warn"
+  },
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "testing/**",
+    "apps/*/testing/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+  ],
+  "options": {
+    "typeAware": true
+  },
+  "rules": {
+    "max-params": ["warn", { "max": 4 }],
+    "no-case-declarations": "error",
+    "no-nested-ternary": "error",
+    "no-else-return": "warn",
+    "no-empty": ["error", { "allowEmptyCatch": true }],
+    "no-fallthrough": "error",
+    "no-new-wrappers": "error",
+    "no-prototype-builtins": "error",
+    "no-self-compare": "error",
+    "no-unneeded-ternary": "error",
+    "no-unexpected-multiline": "error",
+    "no-unused-vars": [
+      "error",
+      {
+        "args": "none",
+        "fix": {
+          "imports": "safe-fix",
+          "variables": "off"
+        },
+        "varsIgnorePattern": "^_"
+      }
+    ],
+    "no-useless-return": "error",
+    "no-var": "error",
+    "no-warning-comments": ["error", { "terms": ["@nocommit"] }],
+    "no-shadow": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/require-array-sort-compare": ["warn", { "ignoreStringArrays": true }],
+    "typescript/switch-exhaustiveness-check": "error",
+    "object-shorthand": "error",
+    "typescript/prefer-optional-chain": "warn",
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "prefer-const": "error",
+    "prefer-template": "error",
+    "no-lonely-if": "error",
+    "no-sequences": "error",
+    "preserve-caught-error": "error",
+    "oxc/approx-constant": "error",
+    "oxc/bad-bitwise-operator": "error",
+    "oxc/misrefactored-assign-op": "error",
+    "unicorn/prefer-includes": "error",
+    "unicorn/explicit-length-check": "error",
+    "unicorn/no-useless-undefined": "error",
+    "unicorn/no-abusive-eslint-disable": "error",
+    "typescript/no-inferrable-types": "error",
+    "typescript/no-unnecessary-type-arguments": "error",
+    "typescript/prefer-for-of": "error",
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-confusing-void-expression": ["error", { "ignoreArrowShorthand": true }],
+    "curly": ["error", "multi-line", "consistent"]
+  }
+}

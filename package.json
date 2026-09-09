@@ -57,8 +57,10 @@
     "dev": "vite --config dev/vite.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "svelte-check --tsconfig tsconfig.json",
-    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build"
+    "check:types": "svelte-check --tsconfig tsconfig.json",
+    "check:lint": "oxlint",
+    "check": "pnpm check:types && pnpm check:lint",
+    "prepublishOnly": "pnpm check && pnpm test && pnpm build"
   },
   "peerDependencies": {
     "svelte": "^5.0.0"
@@ -67,6 +69,8 @@
     "@sveltejs/package": "^2.5.8",
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@types/node": "^22.20.1",
+    "oxlint": "^1.82.0",
+    "oxlint-tsgolint": "^7.0.2001",
     "svelte": "^5.57.0",
     "svelte-check": "^4.7.6",
     "typescript": "^5.9.3",

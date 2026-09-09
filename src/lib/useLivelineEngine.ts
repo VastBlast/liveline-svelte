@@ -92,6 +92,9 @@ function ref<T>(value: T): MutableRef<T> {
 // --- Constants ---
 const MAX_DELTA_MS = 50
 const SCRUB_LERP_SPEED = 0.12
+// Movement that decides a touch's axis. Kept under every browser's own
+// scroll slop (8-10px) so the chart decides before the page can.
+const TOUCH_SLOP = 6
 const BADGE_WIDTH_LERP = 0.15
 const BADGE_Y_LERP = 0.35
 const BADGE_Y_LERP_TRANSITIONING = 0.5
@@ -1851,40 +1854,76 @@ export function mountLivelineEngine(
   sizeRef.current = { w: containerRect.width, h: containerRect.height }
   cleanups.push(() => resizeObserver.disconnect())
 
-  const onMove = (event: MouseEvent) => {
-    if (!configRef.current.scrub) return
-    const rect = container.getBoundingClientRect()
-    hoverXRef.current = event.clientX - rect.left
+  const setHover = (clientX: number) => {
+    hoverXRef.current = clientX - container.getBoundingClientRect().left
   }
-  const onLeave = () => {
-    hoverXRef.current = null
-    configRef.current.onHover?.(null)
-  }
-  const onTouchStart = (event: TouchEvent) => {
-    if (!configRef.current.scrub || event.touches.length !== 1) return
-    const rect = container.getBoundingClientRect()
-    hoverXRef.current = event.touches[0].clientX - rect.left
-  }
-  const onTouchMove = (event: TouchEvent) => {
-    if (!configRef.current.scrub || event.touches.length !== 1) return
-    event.preventDefault()
-    const rect = container.getBoundingClientRect()
-    hoverXRef.current = event.touches[0].clientX - rect.left
-  }
-  const onTouchEnd = () => {
+  const clearHover = () => {
+    if (hoverXRef.current === null) return
     hoverXRef.current = null
     configRef.current.onHover?.(null)
   }
 
-  container.addEventListener('mousemove', onMove)
-  container.addEventListener('mouseleave', onLeave)
+  // Mouse and pen hover: the crosshair follows the pointer while it is over
+  // the chart. Touch is handled below, since a finger may mean to scroll.
+  const onPointerMove = (event: PointerEvent) => {
+    if (!configRef.current.scrub || event.pointerType === 'touch' || !event.isPrimary) return
+    setHover(event.clientX)
+  }
+
+  // A touch starts undecided and its first movement past TOUCH_SLOP settles
+  // its axis for the rest of the gesture. Sideways means scrubbing: every
+  // further move is cancelled, so the page never scrolls under a finger that
+  // wobbles. Up or down belongs to the page and the chart lets go. Anything
+  // else (a second finger, scrubbing off, a move the browser already
+  // consumed) is the page's too. `touch-action` on the root keeps vertical
+  // panning and pinch-zoom native, so nothing here fights the browser.
+  let touchGesture: 'pending' | 'scrub' | 'page' | null = null
+  let touchStartX = 0
+  let touchStartY = 0
+
+  const onTouchStart = (event: TouchEvent) => {
+    if (!configRef.current.scrub || event.touches.length !== 1) {
+      touchGesture = 'page'
+      clearHover()
+      return
+    }
+    const touch = event.touches[0]
+    touchStartX = touch.clientX
+    touchStartY = touch.clientY
+    touchGesture = 'pending'
+    setHover(touch.clientX)
+  }
+  const onTouchMove = (event: TouchEvent) => {
+    if (touchGesture === null || touchGesture === 'page') return
+    const touch = event.touches[0]
+    if (touchGesture === 'pending') {
+      const dx = Math.abs(touch.clientX - touchStartX)
+      const dy = Math.abs(touch.clientY - touchStartY)
+      if (!event.cancelable || (dy >= TOUCH_SLOP && dy >= dx)) {
+        touchGesture = 'page'
+        clearHover()
+        return
+      }
+      if (dx < TOUCH_SLOP) return
+      touchGesture = 'scrub'
+    }
+    event.preventDefault()
+    setHover(touch.clientX)
+  }
+  const onTouchEnd = () => {
+    touchGesture = null
+    clearHover()
+  }
+
+  container.addEventListener('pointermove', onPointerMove, { passive: true })
+  container.addEventListener('pointerleave', clearHover)
   container.addEventListener('touchstart', onTouchStart, { passive: true })
   container.addEventListener('touchmove', onTouchMove, { passive: false })
   container.addEventListener('touchend', onTouchEnd)
   container.addEventListener('touchcancel', onTouchEnd)
   cleanups.push(() => {
-    container.removeEventListener('mousemove', onMove)
-    container.removeEventListener('mouseleave', onLeave)
+    container.removeEventListener('pointermove', onPointerMove)
+    container.removeEventListener('pointerleave', clearHover)
     container.removeEventListener('touchstart', onTouchStart)
     container.removeEventListener('touchmove', onTouchMove)
     container.removeEventListener('touchend', onTouchEnd)

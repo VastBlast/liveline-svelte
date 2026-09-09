@@ -93,8 +93,17 @@ function setup(overrides: Partial<EngineConfig> = {}) {
   return { config, controller, container, valueElement }
 }
 
-function move(container: TestElement, x: number) {
-  container.dispatchEvent(Object.assign(new Event('mousemove'), { clientX: x }))
+function move(container: TestElement, x: number, pointer: Partial<PointerEvent> = {}) {
+  container.dispatchEvent(Object.assign(new Event('pointermove'), { clientX: x, isPrimary: true, pointerType: 'mouse', ...pointer }))
+}
+
+/** Dispatches a one-finger touch event and reports whether the chart cancelled it. */
+function touch(container: TestElement, type: string, point: [x: number, y: number], cancelable = true) {
+  const event = Object.assign(new Event(type, { cancelable }), {
+    touches: type === 'touchend' ? [] : [{ clientX: point[0], clientY: point[1] }],
+  })
+  container.dispatchEvent(event)
+  return event.defaultPrevented
 }
 
 beforeEach(() => {
@@ -146,6 +155,52 @@ describe('engine interactions', () => {
     for (let i = 0; i < 60; i++) frame()
     expect(onHover).not.toHaveBeenCalled()
     expect(vi.mocked(drawFrame).mock.lastCall?.[3].scrubAmount).toBe(0)
+  })
+
+  it('locks a sideways touch to scrubbing even when the finger wobbles', () => {
+    const onHover = vi.fn()
+    const { container } = setup({ onHover })
+    touch(container, 'touchstart', [200, 100])
+    frame()
+    expect(onHover).toHaveBeenLastCalledWith(expect.objectContaining({ x: 200 }))
+
+    expect(touch(container, 'touchmove', [210, 103])).toBe(true)
+    expect(touch(container, 'touchmove', [230, 160])).toBe(true)
+    frame()
+    expect(onHover).toHaveBeenLastCalledWith(expect.objectContaining({ x: 230 }))
+
+    touch(container, 'touchend', [230, 160])
+    expect(onHover).toHaveBeenLastCalledWith(null)
+  })
+
+  it('hands a vertical touch to the page', () => {
+    const onHover = vi.fn()
+    const { container } = setup({ onHover })
+    touch(container, 'touchstart', [200, 100])
+    expect(touch(container, 'touchmove', [202, 110])).toBe(false)
+    expect(onHover).toHaveBeenLastCalledWith(null)
+    onHover.mockClear()
+
+    expect(touch(container, 'touchmove', [260, 110])).toBe(false)
+    frame()
+    expect(onHover).not.toHaveBeenCalled()
+  })
+
+  it('leaves a touch the browser already scrolls alone', () => {
+    const onHover = vi.fn()
+    const { container } = setup({ onHover })
+    touch(container, 'touchstart', [200, 100])
+    expect(touch(container, 'touchmove', [240, 100], false)).toBe(false)
+    expect(onHover).toHaveBeenLastCalledWith(null)
+  })
+
+  it('follows only a primary mouse or pen pointer', () => {
+    const onHover = vi.fn()
+    const { container } = setup({ onHover })
+    move(container, 300, { isPrimary: false })
+    move(container, 300, { pointerType: 'touch' })
+    frame()
+    expect(onHover).not.toHaveBeenCalled()
   })
 
   it('reports the hovered candle close through onHover', () => {

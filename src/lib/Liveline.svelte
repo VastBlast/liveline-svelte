@@ -84,10 +84,14 @@
   let activeMode = $derived(mode === 'line' || lineMode ? 'line' : 'candle')
   let isMultiSeries = $derived((seriesProp?.length ?? 0) > 0)
   let showSeriesToggle = $derived(showSeriesToggleProp && lastSeriesProp.length > 1)
+  let showBadge = $derived(badge && !isMultiSeries)
   let showMomentum = $derived(momentum !== false)
   let momentumOverride = $derived(typeof momentum === 'string' ? momentum : undefined)
+  // The right gutter holds whatever is drawn past the chart's edge, so it is
+  // sized by what is actually shown: the value badge, else grid labels, else
+  // just breathing room.
   let defaultRight = $derived.by(() => {
-    if (badge) return 80
+    if (showBadge) return 80
     return grid ? 54 : 12
   })
   let effectiveWindowSecs = $derived(windows?.length ? activeWindowSecs : windowSecs)
@@ -337,7 +341,7 @@
       windowSecs: effectiveWindowSecs,
       lerpSpeed,
       showGrid: grid,
-      showBadge: isMultiSeries ? false : badge,
+      showBadge,
       showMomentum: isMultiSeries ? false : showMomentum,
       momentumOverride: momentumOverride as Momentum | undefined,
       showFill: isMultiSeries ? false : fill,
@@ -524,7 +528,13 @@
   </div>
 {/if}
 
-<div {...rest} bind:this={containerEl} class={['liveline-root', className]}>
+<!-- Scrubbing consumes horizontal drags only; the browser keeps vertical page scrolling and pinch-zoom. -->
+<div
+  {...rest}
+  bind:this={containerEl}
+  class={['liveline-root', className]}
+  style:touch-action={scrub ? 'pan-y pinch-zoom' : null}
+>
   <canvas bind:this={canvasEl} class="liveline-canvas" style:cursor={cursorStyle}></canvas>
 </div>
 
@@ -533,6 +543,8 @@
     width: 100%;
     height: 100%;
     position: relative;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   .liveline-canvas {

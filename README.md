@@ -72,7 +72,7 @@ Any standard `div` attributes such as `class`, `style`, `id`, `data-*`, or `aria
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
 | `momentum` | `boolean \| Momentum` | `true` | Dot glow and arrows. `true` auto-detects, or pass `'up' \| 'down' \| 'flat'` |
-| `scrub` | `boolean` | `true` | Crosshair scrubbing on hover |
+| `scrub` | `boolean` | `true` | Crosshair scrubbing on hover. On touch, a drag that starts sideways scrubs and stays locked to the chart; one that starts up or down scrolls the page |
 | `exaggerate` | `boolean` | `false` | Tight Y-axis range so smaller moves fill more height |
 | `showValue` | `boolean` | `false` | Large live value overlay |
 | `valueMomentumColor` | `boolean` | `false` | Colors the value overlay by momentum |
@@ -102,7 +102,7 @@ When `mode="candle"`, pass `candles`, `liveCandle`, and `candleWidth`. If you al
 | `showSeriesToggle` | `boolean` | `true` | Show built-in series chips; disable to manage series externally |
 | `seriesToggleCompact` | `boolean` | `false` | Dot-only series toggle chips |
 
-When `series` is provided, Liveline disables single-series badge, fill, and momentum affordances automatically.
+When `series` is provided, Liveline disables single-series badge, fill, and momentum affordances automatically, and the right gutter shrinks to fit the grid labels.
 
 ### State
 
@@ -142,7 +142,7 @@ When `series` is provided, Liveline disables single-series badge, fill, and mome
 | `formatValue` | `(v: number) => string` | `v.toFixed(2)` | Value formatter |
 | `formatTime` | `(t: number) => string` | `HH:MM:SS` | Time formatter |
 | `lerpSpeed` | `number` | `0.08` | Interpolation speed |
-| `padding` | `Padding` | `{ top: 12, right: auto, bottom: 28, left: 12 }` | Chart padding override |
+| `padding` | `Padding` | `{ top: 12, right: auto, bottom: 28, left: 12 }` | Chart padding override; `right` defaults to 80 with a badge, 54 with grid labels, else 12 |
 | `onHover` | `(point \| null) => void` | — | Hover callback with `{ time, value, x, y }` |
 | `cursor` | `string` | `'crosshair'` | Canvas hover cursor |
 

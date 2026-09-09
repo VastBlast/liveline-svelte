@@ -1,6 +1,6 @@
 {
   "name": "liveline-svelte",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "packageManager": "pnpm@12.3.4",
   "description": "Independent real-time chart library for Svelte 5, with animated line, candlestick, and multi-series modes. Originally forked from Liveline.",

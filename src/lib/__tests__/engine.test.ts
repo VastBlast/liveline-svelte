@@ -176,6 +176,48 @@ describe('engine interactions', () => {
     expect(onHover).toHaveBeenLastCalledWith(null)
   })
 
+  it('ends an active touch scrub when scrubbing is disabled', () => {
+    const onHover = vi.fn()
+    const { config, controller, container } = setup({ onHover })
+    touch(container, 'touchstart', [200, 100])
+    expect(touch(container, 'touchmove', [210, 100])).toBe(true)
+    frame()
+
+    controller.update({ ...config, scrub: false })
+    expect(onHover).toHaveBeenLastCalledWith(null)
+    onHover.mockClear()
+    expect(touch(container, 'touchmove', [230, 100])).toBe(false)
+    for (let i = 0; i < 60; i++) frame()
+    expect(onHover).not.toHaveBeenCalled()
+    expect(vi.mocked(drawFrame).mock.lastCall?.[3].scrubAmount).toBe(0)
+  })
+
+  it('hands the gesture to the page when another finger starts outside the chart', () => {
+    const onHover = vi.fn()
+    const { container } = setup({ onHover })
+    touch(container, 'touchstart', [200, 100])
+    expect(touch(container, 'touchmove', [210, 100])).toBe(true)
+
+    // The second touchstart targets another element, but touches includes both fingers.
+    const event = Object.assign(new Event('touchmove', { cancelable: true }), {
+      touches: [{ clientX: 230, clientY: 100 }, { clientX: 700, clientY: 100 }],
+    })
+    container.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+    expect(onHover).toHaveBeenLastCalledWith(null)
+    onHover.mockClear()
+
+    expect(touch(container, 'touchmove', [240, 100])).toBe(false)
+    frame()
+    expect(onHover).not.toHaveBeenCalled()
+
+    touch(container, 'touchend', [240, 100])
+    touch(container, 'touchstart', [200, 100])
+    expect(touch(container, 'touchmove', [210, 100])).toBe(true)
+    frame()
+    expect(onHover).toHaveBeenLastCalledWith(expect.objectContaining({ x: 210 }))
+  })
+
   it('hands a vertical touch to the page', () => {
     const onHover = vi.fn()
     const { container } = setup({ onHover })
@@ -189,12 +231,17 @@ describe('engine interactions', () => {
     expect(onHover).not.toHaveBeenCalled()
   })
 
-  it('leaves a touch the browser already scrolls alone', () => {
+  it.each([false, true])('leaves a touch the browser already scrolls alone (scrubbing: %s)', (scrubbing) => {
     const onHover = vi.fn()
     const { container } = setup({ onHover })
     touch(container, 'touchstart', [200, 100])
+    if (scrubbing) expect(touch(container, 'touchmove', [210, 100])).toBe(true)
     expect(touch(container, 'touchmove', [240, 100], false)).toBe(false)
     expect(onHover).toHaveBeenLastCalledWith(null)
+    onHover.mockClear()
+    expect(touch(container, 'touchmove', [250, 100])).toBe(false)
+    frame()
+    expect(onHover).not.toHaveBeenCalled()
   })
 
   it('follows only a primary mouse or pen pointer', () => {
@@ -322,5 +369,36 @@ describe('paused data', () => {
     documentTarget.dispatchEvent(new Event('visibilitychange'))
     frame()
     expect(vi.mocked(drawFrame).mock.lastCall![1].leftEdge).toBeCloseTo(leftEdge, 5)
+  })
+})
+
+describe('readout formatting', () => {
+  it.each(['line', 'candle', 'multi'] as const)('skips readout formatters when scrubbing is disabled in %s mode', (mode) => {
+    const formatValue = vi.fn(String)
+    const formatTime = vi.fn(String)
+    const palette = resolveTheme('#3b82f6', 'light')
+    const { config, controller } = setup({
+      scrub: false,
+      valueDisplayElement: null,
+      formatValue,
+      formatTime,
+      mode: mode === 'candle' ? 'candle' : 'line',
+      candles: [
+        { time: epoch - 20, open: 10, high: 13, low: 9, close: 12 },
+        { time: epoch - 10, open: 12, high: 15, low: 11, close: 14 },
+      ],
+      candleWidth: 10,
+      isMultiSeries: mode === 'multi',
+      multiSeries: [{ id: 'one', data: [{ time: epoch - 20, value: 10 }, { time: epoch, value: 12 }], value: 12, palette }],
+    })
+    // Draw modules are mocked, isolating readout work from axis and badge formatting.
+    frame()
+    expect(formatValue).not.toHaveBeenCalled()
+    expect(formatTime).not.toHaveBeenCalled()
+
+    controller.update({ ...config, scrub: true })
+    frame()
+    expect(formatValue).toHaveBeenCalled()
+    expect(formatTime).toHaveBeenCalled()
   })
 })

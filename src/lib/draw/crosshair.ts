@@ -32,8 +32,10 @@ export function drawCrosshair(
   if (dotRadius > 0.5) {
     ctx.globalAlpha = 1
     for (const point of points) {
+      // Match the line's clamped position while the range is changing.
+      const y = Math.max(pad.top, Math.min(h - pad.bottom, point.y))
       ctx.beginPath()
-      ctx.arc(hoverX, point.y, dotRadius, 0, Math.PI * 2)
+      ctx.arc(hoverX, y, dotRadius, 0, Math.PI * 2)
       ctx.fillStyle = point.color
       ctx.fill()
     }

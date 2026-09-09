@@ -794,7 +794,6 @@ export function mountLivelineEngine(
      * widen while a hover lasts, so values changing width do not jitter.
      */
     const drawReadoutBand = (reserve: ReadoutItem[], hover: ReadoutItem[] | null, alpha: number) => {
-      if (!cfg.scrub) return
       const maxWidth = w - cfg.padding.left - 4
       const reserveLayout = layoutReadout(ctx, cfg.palette, reserve, { maxWidth })
       const slots = readoutSlotsRef.current
@@ -1369,21 +1368,23 @@ export function mountLivelineEngine(
       })
 
       // Readout: the close alone in line mode, else the candle's OHLC.
-      const candleItems = (candle: CandlePoint): ReadoutItem[] => {
-        if (lineModeProg > 0.5) return [{ value: cfg.formatValue(candle.close), color: cfg.palette.line }]
-        const color = candle.close >= candle.open ? BULL : BEAR
-        return (['open', 'high', 'low', 'close'] as const).map((key) => ({
-          label: key[0].toUpperCase(), value: cfg.formatValue(candle[key]), color,
-        }))
+      if (cfg.scrub) {
+        const candleItems = (candle: CandlePoint): ReadoutItem[] => {
+          if (lineModeProg > 0.5) return [{ value: cfg.formatValue(candle.close), color: cfg.palette.line }]
+          const color = candle.close >= candle.open ? BULL : BEAR
+          return (['open', 'high', 'low', 'close'] as const).map((key) => ({
+            label: key[0].toUpperCase(), value: cfg.formatValue(candle[key]), color,
+          }))
+        }
+        const liveCandle = effectiveLive ?? effectiveCandles[effectiveCandles.length - 1]
+        drawReadoutBand(
+          liveCandle ? [...candleItems(liveCandle), timeItem(now, cfg.candleWidth)] : [],
+          drawHoverCandle && drawHoverTime !== null
+            ? [...candleItems(drawHoverCandle), timeItem(drawHoverTime, cfg.candleWidth)]
+            : null,
+          scrubAmount,
+        )
       }
-      const liveCandle = effectiveLive ?? effectiveCandles[effectiveCandles.length - 1]
-      drawReadoutBand(
-        liveCandle ? [...candleItems(liveCandle), timeItem(now, cfg.candleWidth)] : [],
-        drawHoverCandle && drawHoverTime !== null
-          ? [...candleItems(drawHoverCandle), timeItem(drawHoverTime, cfg.candleWidth)]
-          : null,
-        scrubAmount,
-      )
 
       // Badge in candle mode — only when in line mode (lineModeProg > 0.5)
       if (badgeRef.current) {
@@ -1697,22 +1698,24 @@ export function mountLivelineEngine(
     })
 
     // Readout: the hovered value of every shown series.
-    const reserveItems: ReadoutItem[] = []
-    for (const s of effectiveMultiSeries) {
-      if (hiddenIds?.has(s.id)) continue
-      reserveItems.push({ dot: s.palette.line, label: s.label, value: cfg.formatValue(smoothValues.get(s.id) ?? s.value) })
+    if (cfg.scrub) {
+      const reserveItems: ReadoutItem[] = []
+      for (const s of effectiveMultiSeries) {
+        if (hiddenIds?.has(s.id)) continue
+        reserveItems.push({ dot: s.palette.line, label: s.label, value: cfg.formatValue(smoothValues.get(s.id) ?? s.value) })
+      }
+      reserveItems.push(timeItem(now))
+      drawReadoutBand(
+        reserveItems,
+        drawHoverX !== null && drawHoverTime !== null && hoverEntries.length > 0
+          ? [
+            ...hoverEntries.map((entry) => ({ dot: entry.color, label: entry.label || undefined, value: cfg.formatValue(entry.value) })),
+            timeItem(drawHoverTime),
+          ]
+          : null,
+        scrubOpacity,
+      )
     }
-    reserveItems.push(timeItem(now))
-    drawReadoutBand(
-      reserveItems,
-      drawHoverX !== null && drawHoverTime !== null && hoverEntries.length > 0
-        ? [
-          ...hoverEntries.map((entry) => ({ dot: entry.color, label: entry.label || undefined, value: cfg.formatValue(entry.value) })),
-          timeItem(drawHoverTime),
-        ]
-        : null,
-      scrubOpacity,
-    )
 
     // During reverse morph (chart → loading/empty), overlay the empty text
     // as chartReveal drops — identical to single-series behavior
@@ -1879,13 +1882,15 @@ export function mountLivelineEngine(
     })
 
     // Readout: the hovered value and time.
-    drawReadoutBand(
-      [{ value: cfg.formatValue(smoothValue) }, timeItem(now)],
-      drawHoverValue !== null && drawHoverTime !== null
-        ? [{ value: cfg.formatValue(drawHoverValue) }, timeItem(drawHoverTime)]
-        : null,
-      scrubOpacity,
-    )
+    if (cfg.scrub) {
+      drawReadoutBand(
+        [{ value: cfg.formatValue(smoothValue) }, timeItem(now)],
+        drawHoverValue !== null && drawHoverTime !== null
+          ? [{ value: cfg.formatValue(drawHoverValue) }, timeItem(drawHoverTime)]
+          : null,
+        scrubOpacity,
+      )
+    }
 
     // During morph (chart ↔ empty), overlay the gradient gap + text on
     // top of the morphing chart line. skipLine=true avoids double-drawing
@@ -2011,11 +2016,16 @@ export function mountLivelineEngine(
   }
   const onTouchMove = (event: TouchEvent) => {
     if (touchGesture === null || touchGesture === 'page') return
+    if (!configRef.current.scrub || event.touches.length !== 1 || !event.cancelable) {
+      touchGesture = 'page'
+      clearHover()
+      return
+    }
     const touch = event.touches[0]
     if (touchGesture === 'pending') {
       const dx = Math.abs(touch.clientX - touchStartX)
       const dy = Math.abs(touch.clientY - touchStartY)
-      if (!event.cancelable || (dy >= TOUCH_SLOP && dy >= dx)) {
+      if (dy >= TOUCH_SLOP && dy >= dx) {
         touchGesture = 'page'
         clearHover()
         return

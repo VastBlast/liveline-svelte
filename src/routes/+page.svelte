@@ -406,7 +406,7 @@
               { key: 'exaggerate', label: 'Tight scale' },
               { key: 'degen', label: 'Particles' },
             ] as const) as option (option.key)}
-              {@const unavailable = mode === 'multi' && ['fill', 'badge', 'momentum', 'degen'].includes(option.key)}
+              {@const unavailable = mode === 'multi' && ['fill', 'badge', 'momentum'].includes(option.key)}
               <label class={['feature-control', { unavailable }]}>
                 <input type="checkbox" bind:checked={features[option.key]} disabled={unavailable} />
                 <span>{option.label}</span>

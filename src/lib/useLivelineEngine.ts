@@ -5,11 +5,13 @@ import { detectMomentum } from './math/momentum'
 import { interpolateAtTime, sliceTimeRange } from './math/interpolate'
 import { getDpr, applyDpr } from './canvas/dpr'
 import { drawFrame, drawCandleFrame, drawMultiFrame, FADE_EDGE_WIDTH } from './draw'
+import { drawReadout, layoutReadout, readoutHeight, type ReadoutItem } from './draw/readout'
+import { BULL, BEAR } from './draw/candlestick'
 import type { MultiSeriesEntry } from './draw'
 import { drawLoading } from './draw/loading'
 import { drawEmpty } from './draw/empty'
 import { createOrderbookState } from './draw/orderbook'
-import { createParticleState } from './draw/particles'
+import { createParticleState, type ParticleState } from './draw/particles'
 import { createShakeState } from './draw'
 import { badgeSvgPath, badgePillOnly, BADGE_PAD_X, BADGE_PAD_Y, BADGE_TAIL_LEN, BADGE_TAIL_SPREAD, BADGE_LINE_H } from './draw/badge'
 
@@ -26,7 +28,7 @@ interface EngineConfig {
   showFill: boolean
   referenceLine?: ReferenceLine
   formatValue: (v: number) => string
-  formatTime: (t: number) => string
+  formatTime: (time: number, step?: number) => string
   padding: Required<Padding>
   onHover?: (point: HoverPoint | null) => void
   showPulse: boolean
@@ -35,8 +37,6 @@ interface EngineConfig {
   degenOptions?: DegenOptions
   badgeTail: boolean
   badgeVariant: BadgeVariant
-  tooltipY: number
-  tooltipOutline: boolean
   valueMomentumColor: boolean
   valueDisplayElement?: HTMLSpanElement | null
   orderbookData?: OrderbookData
@@ -92,6 +92,9 @@ function ref<T>(value: T): MutableRef<T> {
 // --- Constants ---
 const MAX_DELTA_MS = 50
 const SCRUB_LERP_SPEED = 0.12
+// Within this distance of the live dot the crosshair has fully yielded to the badge.
+const CROSSHAIR_FADE_MIN_PX = 5
+const READOUT_HEIGHT_SPEED = 0.25
 // Movement that decides a touch's axis. Kept under every browser's own
 // scroll slop (8-10px) so the chart decides before the page can.
 const TOUCH_SLOP = 6
@@ -317,6 +320,27 @@ function updateHoverState(
     hoverX: drawHoverX, hoverValue: drawHoverValue, hoverTime: drawHoverTime,
     scrubAmount, isActiveHover, lastHover,
   }
+}
+
+/**
+ * How visible the crosshair is. With a badge it fades out as it nears the
+ * live dot, since the badge already shows that value; without one there is
+ * nothing to yield to, so it stays until the hover ends.
+ */
+function crosshairOpacity(cfg: EngineConfig, distToLive: number | null, chartW: number, scrubAmount: number): number {
+  if (!cfg.showBadge || distToLive === null) return scrubAmount
+  const fadeStart = Math.min(80, chartW * 0.3)
+  if (distToLive < CROSSHAIR_FADE_MIN_PX) return 0
+  if (distToLive >= fadeStart) return scrubAmount
+  return ((distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX)) * scrubAmount
+}
+
+/** Recent movement relative to the visible range, 0–1: what particle bursts are judged on. */
+function recentSwing(visible: LivelinePoint[], valRange: number): number {
+  const lookback = Math.min(5, visible.length - 1)
+  if (lookback <= 0 || valRange <= 0) return 0
+  const delta = Math.abs(visible[visible.length - 1].value - visible[visible.length - 1 - lookback].value)
+  return Math.min(delta / valRange, 1)
 }
 
 /** Update badge DOM element — text, width lerp, SVG path, position, color. */
@@ -581,6 +605,7 @@ export function mountLivelineEngine(
   const timeAxisStateRef = ref({ labels: new Map<number, { alpha: number; text: string }>() })
   const orderbookStateRef = ref(createOrderbookState())
   const particleStateRef = ref(createParticleState())
+  const multiParticleStatesRef = ref(new Map<string, ParticleState>())
   const shakeStateRef = ref(createShakeState())
   const badgeColorRef = ref({ green: 1 })
   const badgeYRef = ref<number | null>(null) // lerped badge Y, null = uninited
@@ -595,6 +620,11 @@ export function mountLivelineEngine(
 
   // Hover state
   const hoverXRef = ref<number | null>(null)
+  const readoutHeightRef = ref(0)
+  // Rows the readout needed last frame; the band above the plot is sized from it.
+  const readoutRowsRef = ref(1)
+  // The widest each readout slot has been during the current hover.
+  const readoutSlotsRef = ref<number[]>([])
   const scrubAmountRef = ref(0) // 0 = not scrubbing, 1 = fully scrubbing
   const lastHoverRef = ref<{ x: number; value: number; time: number } | null>(null)
   const lastHoverEntriesRef = ref<{ color: string; label: string; value: number }[]>([])
@@ -745,8 +775,38 @@ export function mountLivelineEngine(
       ? cfg.multiSeries.some(s => (pausedMultiDataRef.current?.get(s.id)?.data ?? s.data).length >= 2)
       : false
     const hasData = isCandle ? effectiveCandles.length >= 2 : (hasMultiData || points.length >= 2)
-    const pad = cfg.padding
+    // The readout band sits above the plot, sized for the rows it needs.
+    const readoutTarget = cfg.scrub ? readoutHeight(readoutRowsRef.current) : 0
+    readoutHeightRef.current = noMotion ? readoutTarget : lerp(readoutHeightRef.current, readoutTarget, READOUT_HEIGHT_SPEED, dt)
+    if (Math.abs(readoutHeightRef.current - readoutTarget) < 0.5) readoutHeightRef.current = readoutTarget
+    const pad = readoutHeightRef.current > 0
+      ? { ...cfg.padding, top: cfg.padding.top + readoutHeightRef.current }
+      : cfg.padding
     const chartH = h - pad.top - pad.bottom
+
+    const timeItem = (time: number, step?: number): ReadoutItem =>
+      ({ value: cfg.formatTime(time, step), color: cfg.palette.gridLabel })
+
+    /**
+     * The band above the plot shows the hovered values. It is sized every
+     * frame for what the live values would need as well, so it is already
+     * tall enough when a hover starts and the plot does not move. Slots only
+     * widen while a hover lasts, so values changing width do not jitter.
+     */
+    const drawReadoutBand = (reserve: ReadoutItem[], hover: ReadoutItem[] | null, alpha: number) => {
+      if (!cfg.scrub) return
+      const maxWidth = w - cfg.padding.left - 4
+      const reserveLayout = layoutReadout(ctx, cfg.palette, reserve, { maxWidth })
+      const slots = readoutSlotsRef.current
+      const hoverLayout = hover ? layoutReadout(ctx, cfg.palette, hover, { maxWidth, minWidths: slots }) : null
+      readoutRowsRef.current = Math.max(1, reserveLayout.rows, hoverLayout?.rows ?? 0)
+      if (!hoverLayout) {
+        slots.length = 0
+        return
+      }
+      hoverLayout.widths.forEach((width, index) => { slots[index] = Math.max(slots[index] ?? 0, width) })
+      drawReadout(ctx, cfg.palette, hoverLayout, { x: cfg.padding.left, y: cfg.padding.top, alpha })
+    }
 
     // --- Pause time management ---
     const pauseTarget = cfg.paused ? 1 : 0
@@ -1296,8 +1356,7 @@ export function mountLivelineEngine(
         timeAxisState: timeAxisStateRef.current,
         dt: pausedDt,
         targetWindowSecs: cfg.windowSecs,
-        tooltipY: cfg.tooltipY,
-        tooltipOutline: cfg.tooltipOutline,
+        crosshairOpacity: scrubAmount,
         lineVisible,
         lineSmoothValue,
         emptyText: cfg.emptyText,
@@ -1308,6 +1367,23 @@ export function mountLivelineEngine(
         // allowing smooth fade-out during empty→live (loadingAlpha is 0).
         showEmptyOverlay: !(cfg.loading ?? false) && loadingAlpha < 0.01,
       })
+
+      // Readout: the close alone in line mode, else the candle's OHLC.
+      const candleItems = (candle: CandlePoint): ReadoutItem[] => {
+        if (lineModeProg > 0.5) return [{ value: cfg.formatValue(candle.close), color: cfg.palette.line }]
+        const color = candle.close >= candle.open ? BULL : BEAR
+        return (['open', 'high', 'low', 'close'] as const).map((key) => ({
+          label: key[0].toUpperCase(), value: cfg.formatValue(candle[key]), color,
+        }))
+      }
+      const liveCandle = effectiveLive ?? effectiveCandles[effectiveCandles.length - 1]
+      drawReadoutBand(
+        liveCandle ? [...candleItems(liveCandle), timeItem(now, cfg.candleWidth)] : [],
+        drawHoverCandle && drawHoverTime !== null
+          ? [...candleItems(drawHoverCandle), timeItem(drawHoverTime, cfg.candleWidth)]
+          : null,
+        scrubAmount,
+      )
 
       // Badge in candle mode — only when in line mode (lineModeProg > 0.5)
       if (badgeRef.current) {
@@ -1373,6 +1449,9 @@ export function mountLivelineEngine(
       }
       for (const key of seriesAlphaRef.current.keys()) {
         if (!currentIds.has(key)) seriesAlphaRef.current.delete(key)
+      }
+      for (const key of multiParticleStatesRef.current.keys()) {
+        if (!currentIds.has(key)) multiParticleStatesRef.current.delete(key)
       }
     }
 
@@ -1460,7 +1539,7 @@ export function mountLivelineEngine(
 
     // Build per-series visible arrays and compute global range
     // Use paused snapshots when available to prevent left-edge erosion
-    // Exclude hidden series (alpha < 0.01) from range so Y-axis adjusts
+    // Toggled-off series leave the range so the Y-axis adjusts
     const seriesEntries: MultiSeriesEntry[] = []
     let globalMin = Infinity
     let globalMax = -Infinity
@@ -1471,14 +1550,15 @@ export function mountLivelineEngine(
       const sv = smoothValues.get(s.id) ?? s.value
       const alpha = seriesAlphas.get(s.id) ?? 1
       if (visible.length >= 2) {
-        // Only include in range if series is at least partially visible
-        if (alpha > 0.01) {
+        // A toggled-off series leaves the range at once, so the others grow
+        // into the space while it fades out hugging the plot's edge.
+        if (!hiddenIds?.has(s.id)) {
           const range = computeRange(visible, sv, cfg.referenceLine?.value, cfg.exaggerate)
           if (range.min < globalMin) globalMin = range.min
           if (range.max > globalMax) globalMax = range.max
         }
         // Always push to entries (drawMultiFrame skips via alpha)
-        seriesEntries.push({ visible, smoothValue: sv, palette: s.palette, label: s.label, alpha })
+        seriesEntries.push({ id: s.id, visible, smoothValue: sv, palette: s.palette, label: s.label, alpha })
       }
     }
 
@@ -1532,6 +1612,16 @@ export function mountLivelineEngine(
       toY: (v: number) => pad.top + (1 - (v - minVal) / valRange) * chartH,
     }
 
+    // Particles: each series is its own emitter, judged on its own swing.
+    if (cfg.degenOptions) {
+      const states = multiParticleStatesRef.current
+      for (const entry of seriesEntries) {
+        entry.momentum = detectMomentum(entry.visible)
+        entry.swingMagnitude = recentSwing(entry.visible, valRange)
+        if (!states.has(entry.id)) states.set(entry.id, createParticleState())
+      }
+    }
+
     // Hover — interpolate value at hover time for each series
     const hoverPx = hoverXRef.current
     let drawHoverX: number | null = null
@@ -1577,6 +1667,8 @@ export function mountLivelineEngine(
       hoverEntries = lastHoverEntriesRef.current
     }
 
+    const scrubOpacity = crosshairOpacity(cfg, drawHoverX === null ? null : layout.toX(now) - drawHoverX, chartW, scrubAmountRef.current)
+
     // Draw multi-series frame
     drawMultiFrame(ctx, layout, {
       series: seriesEntries,
@@ -1594,13 +1686,33 @@ export function mountLivelineEngine(
       timeAxisState: timeAxisStateRef.current,
       dt,
       targetWindowSecs: cfg.windowSecs,
-      tooltipY: cfg.tooltipY,
-      tooltipOutline: cfg.tooltipOutline,
+      crosshairOpacity: scrubOpacity,
       chartReveal,
       pauseProgress,
       now_ms,
       primaryPalette: cfg.palette,
+      particleStates: cfg.degenOptions ? multiParticleStatesRef.current : undefined,
+      particleOptions: cfg.degenOptions,
+      shakeState: cfg.degenOptions ? shakeStateRef.current : undefined,
     })
+
+    // Readout: the hovered value of every shown series.
+    const reserveItems: ReadoutItem[] = []
+    for (const s of effectiveMultiSeries) {
+      if (hiddenIds?.has(s.id)) continue
+      reserveItems.push({ dot: s.palette.line, label: s.label, value: cfg.formatValue(smoothValues.get(s.id) ?? s.value) })
+    }
+    reserveItems.push(timeItem(now))
+    drawReadoutBand(
+      reserveItems,
+      drawHoverX !== null && drawHoverTime !== null && hoverEntries.length > 0
+        ? [
+          ...hoverEntries.map((entry) => ({ dot: entry.color, label: entry.label || undefined, value: cfg.formatValue(entry.value) })),
+          timeItem(drawHoverTime),
+        ]
+        : null,
+      scrubOpacity,
+    )
 
     // During reverse morph (chart → loading/empty), overlay the empty text
     // as chartReveal drops — identical to single-series behavior
@@ -1728,13 +1840,9 @@ export function mountLivelineEngine(
     scrubAmountRef.current = hoverResult.scrubAmount
     lastHoverRef.current = hoverResult.lastHover
     const { hoverX: drawHoverX, hoverValue: drawHoverValue, hoverTime: drawHoverTime } = hoverResult
+    const scrubOpacity = crosshairOpacity(cfg, drawHoverX === null ? null : layout.toX(now) - drawHoverX, chartW, scrubAmountRef.current)
 
-    // Compute swing magnitude for particles (recent velocity / visible range)
-    const lookback = Math.min(5, visible.length - 1)
-    const recentDelta = lookback > 0
-      ? Math.abs(visible[visible.length - 1].value - visible[visible.length - 1 - lookback].value)
-      : 0
-    const swingMagnitude = valRange > 0 ? Math.min(recentDelta / valRange, 1) : 0
+    const swingMagnitude = recentSwing(visible, valRange)
 
     // Draw canvas content (everything except badge)
     drawFrame(ctx, layout, cfg.palette, {
@@ -1758,8 +1866,7 @@ export function mountLivelineEngine(
       timeAxisState: timeAxisStateRef.current,
       dt,
       targetWindowSecs: cfg.windowSecs,
-      tooltipY: cfg.tooltipY,
-      tooltipOutline: cfg.tooltipOutline,
+      crosshairOpacity: scrubOpacity,
       orderbookData: cfg.orderbookData,
       orderbookState: cfg.orderbookData ? orderbookStateRef.current : undefined,
       particleState: cfg.degenOptions ? particleStateRef.current : undefined,
@@ -1770,6 +1877,15 @@ export function mountLivelineEngine(
       pauseProgress,
       now_ms,
     })
+
+    // Readout: the hovered value and time.
+    drawReadoutBand(
+      [{ value: cfg.formatValue(smoothValue) }, timeItem(now)],
+      drawHoverValue !== null && drawHoverTime !== null
+        ? [{ value: cfg.formatValue(drawHoverValue) }, timeItem(drawHoverTime)]
+        : null,
+      scrubOpacity,
+    )
 
     // During morph (chart ↔ empty), overlay the gradient gap + text on
     // top of the morphing chart line. skipLine=true avoids double-drawing

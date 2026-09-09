@@ -1,19 +1,10 @@
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte'
 
+  import { defaultFormatTime, defaultFormatValue } from './format'
   import { mountLivelineEngine, type LivelineEngineController } from './useLivelineEngine'
   import { resolveSeriesPalettes, resolveTheme, SERIES_COLORS } from './theme'
   import type { DegenOptions, LivelineProps, LivelineSeries, Momentum } from './types'
-
-  const defaultFormatValue = (v: number) => v.toFixed(2)
-
-  const defaultFormatTime = (t: number) => {
-    const d = new Date(t * 1000)
-    const h = d.getHours().toString().padStart(2, '0')
-    const m = d.getMinutes().toString().padStart(2, '0')
-    const s = d.getSeconds().toString().padStart(2, '0')
-    return `${h}:${m}:${s}`
-  }
 
   let {
     data,
@@ -39,8 +30,6 @@
     windows,
     onWindowChange,
     windowStyle,
-    tooltipY = 14,
-    tooltipOutline = true,
     orderbook,
     referenceLine,
     formatValue = defaultFormatValue,
@@ -353,11 +342,9 @@
       showPulse: pulse,
       scrub,
       exaggerate,
-      degenOptions: isMultiSeries ? undefined : degenOptions,
+      degenOptions,
       badgeTail,
       badgeVariant,
-      tooltipY,
-      tooltipOutline,
       valueMomentumColor,
       valueDisplayElement: showValue ? valueDisplayEl : null,
       orderbookData: orderbook,

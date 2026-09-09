@@ -3,16 +3,12 @@ import type { ChartLayout, LivelinePalette, CandlePoint } from '../types'
 export type { CandlePoint } from '../types'
 
 interface CandleCrosshairOptions {
-  candle: CandlePoint
   hoverX: number
-  hoverTime: number
-  formatValue: (v: number) => string
-  formatTime: (t: number) => string
   opacity: number
 }
 
-const BULL = '#22c55e'
-const BEAR = '#ef4444'
+export const BULL = '#22c55e'
+export const BEAR = '#ef4444'
 
 // Pre-parsed RGB for fast interpolation
 const BULL_RGB = [34, 197, 94] as const
@@ -247,23 +243,16 @@ export function drawClosePrice(
   ctx.restore()
 }
 
-/**
- * Draw candlestick crosshair: vertical line + OHLC tooltip.
- * All elements respect `opacity` for smooth fade in/out.
- */
+/** Candle crosshair: a vertical line through the hovered candle. */
 export function drawCandleCrosshair(
   ctx: CanvasRenderingContext2D,
   layout: ChartLayout,
   palette: LivelinePalette,
-  {
-    hoverX, candle, hoverTime, formatValue, formatTime, opacity,
-  }: CandleCrosshairOptions,
+  { hoverX, opacity }: CandleCrosshairOptions,
 ) {
   if (opacity < 0.01) return
 
   const { h, pad } = layout
-
-  // Vertical line
   ctx.save()
   ctx.globalAlpha = opacity * 0.5
   ctx.strokeStyle = palette.crosshairLine
@@ -273,100 +262,18 @@ export function drawCandleCrosshair(
   ctx.lineTo(hoverX, h - pad.bottom)
   ctx.stroke()
   ctx.restore()
-
-  // Tooltip — OHLC + time (matches line chart crosshair patterns)
-  if (opacity < 0.1 || layout.w < 200) return
-
-  const isBull = candle.close >= candle.open
-  const valueColor = isBull ? BULL : BEAR
-
-  const cl = formatValue(candle.close)
-  const time = formatTime(hoverTime)
-
-  ctx.save()
-  ctx.globalAlpha = opacity
-  ctx.font = '400 13px "SF Mono", Menlo, monospace'
-  ctx.textAlign = 'left'
-
-  // Full OHLC at ≥400px, condensed (close + time) at smaller sizes
-  let parts: { text: string; color: string }[]
-  if (layout.w >= 400) {
-    const o = formatValue(candle.open)
-    const hi = formatValue(candle.high)
-    const lo = formatValue(candle.low)
-    parts = [
-      { text: 'O ', color: palette.gridLabel },
-      { text: o, color: valueColor },
-      { text: '   H ', color: palette.gridLabel },
-      { text: hi, color: valueColor },
-      { text: '   L ', color: palette.gridLabel },
-      { text: lo, color: valueColor },
-      { text: '   C ', color: palette.gridLabel },
-      { text: cl, color: valueColor },
-      { text: '  \u00b7  ', color: palette.gridLabel },
-      { text: time, color: palette.gridLabel },
-    ]
-  } else {
-    parts = [
-      { text: 'C ', color: palette.gridLabel },
-      { text: cl, color: valueColor },
-      { text: '  \u00b7  ', color: palette.gridLabel },
-      { text: time, color: palette.gridLabel },
-    ]
-  }
-
-  // Measure
-  let totalW = 0
-  const widths: number[] = []
-  for (const p of parts) {
-    const w = ctx.measureText(p.text).width
-    widths.push(w)
-    totalW += w
-  }
-
-  // Position — center on hover, clamp to chart bounds
-  let tx = hoverX - totalW / 2
-  const minX = pad.left + 4
-  const maxX = layout.w - pad.right - totalW
-  if (tx < minX) tx = minX
-  if (tx > maxX) tx = maxX
-  const ty = pad.top + 24
-
-  // Outline stroke for readability
-  ctx.strokeStyle = palette.tooltipBg
-  ctx.lineWidth = 3
-  ctx.lineJoin = 'round'
-  let cx = tx
-  for (let i = 0; i < parts.length; i++) {
-    ctx.strokeText(parts[i].text, cx, ty)
-    cx += widths[i]
-  }
-
-  // Fill text
-  cx = tx
-  for (let i = 0; i < parts.length; i++) {
-    ctx.fillStyle = parts[i].color
-    ctx.fillText(parts[i].text, cx, ty)
-    cx += widths[i]
-  }
-
-  ctx.restore()
 }
 
-/**
- * Simplified crosshair for line mode — single value + time (no OHLC).
- */
+/** Line-mode crosshair: the vertical line plus a fainter horizontal one through the value. */
 export function drawLineModeCrosshair(
   ctx: CanvasRenderingContext2D,
   layout: ChartLayout,
   palette: LivelinePalette,
-  { hoverX, candle: { close: value }, hoverTime, formatValue, formatTime, opacity }: CandleCrosshairOptions,
+  { hoverX, y, opacity }: CandleCrosshairOptions & { y: number },
 ) {
   if (opacity < 0.01) return
 
   const { h, pad } = layout
-  const y = layout.toY(value)
-
   ctx.save()
   ctx.globalAlpha = opacity * 0.5
   ctx.strokeStyle = palette.crosshairLine
@@ -381,54 +288,5 @@ export function drawLineModeCrosshair(
   ctx.moveTo(pad.left, y)
   ctx.lineTo(layout.w - pad.right, y)
   ctx.stroke()
-  ctx.restore()
-
-  if (opacity < 0.1 || layout.w < 200) return
-
-  const val = formatValue(value)
-  const time = formatTime(hoverTime)
-
-  ctx.save()
-  ctx.globalAlpha = opacity
-  ctx.font = '400 13px "SF Mono", Menlo, monospace'
-  ctx.textAlign = 'left'
-
-  const parts: { text: string; color: string }[] = [
-    { text: val, color: palette.line },
-    { text: '  \u00b7  ', color: palette.gridLabel },
-    { text: time, color: palette.gridLabel },
-  ]
-
-  let totalW = 0
-  const widths: number[] = []
-  for (const p of parts) {
-    const w = ctx.measureText(p.text).width
-    widths.push(w)
-    totalW += w
-  }
-
-  let tx = hoverX - totalW / 2
-  const minX = pad.left + 4
-  const maxX = layout.w - pad.right - totalW
-  if (tx < minX) tx = minX
-  if (tx > maxX) tx = maxX
-  const ty = pad.top + 24
-
-  ctx.strokeStyle = palette.tooltipBg
-  ctx.lineWidth = 3
-  ctx.lineJoin = 'round'
-  let lx = tx
-  for (let i = 0; i < parts.length; i++) {
-    ctx.strokeText(parts[i].text, lx, ty)
-    lx += widths[i]
-  }
-
-  lx = tx
-  for (let i = 0; i < parts.length; i++) {
-    ctx.fillStyle = parts[i].color
-    ctx.fillText(parts[i].text, lx, ty)
-    lx += widths[i]
-  }
-
   ctx.restore()
 }

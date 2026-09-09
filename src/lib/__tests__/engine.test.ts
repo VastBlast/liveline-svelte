@@ -57,6 +57,11 @@ function setup(overrides: Partial<EngineConfig> = {}) {
     save() {},
     restore() {},
     fillRect() {},
+    fillText() {},
+    measureText: (text: string) => ({ width: text.length * 7 }),
+    beginPath() {},
+    arc() {},
+    fill() {},
     createLinearGradient: () => ({ addColorStop() {} }),
   }
   const config: EngineConfig = {
@@ -77,8 +82,6 @@ function setup(overrides: Partial<EngineConfig> = {}) {
     exaggerate: false,
     badgeTail: true,
     badgeVariant: 'default',
-    tooltipY: 14,
-    tooltipOutline: true,
     valueMomentumColor: false,
     valueDisplayElement: valueElement as unknown as HTMLSpanElement,
     mode: 'line',
@@ -201,6 +204,28 @@ describe('engine interactions', () => {
     move(container, 300, { pointerType: 'touch' })
     frame()
     expect(onHover).not.toHaveBeenCalled()
+  })
+
+  it('gives each series its own particle emitter judged on its own swing', () => {
+    const flat = Array.from({ length: 8 }, (_, i) => ({ time: epoch - 8 + i, value: 10 }))
+    const spike = [...flat.slice(0, 6), { time: epoch - 2, value: 10 }, { time: epoch - 1, value: 40 }]
+    const palette = resolveTheme('#3b82f6', 'light')
+    setup({
+      isMultiSeries: true,
+      degenOptions: {},
+      multiSeries: [
+        { id: 'calm', data: flat, value: 10, palette },
+        { id: 'jumpy', data: spike, value: 40, palette },
+      ],
+    })
+    frame()
+    const opts = vi.mocked(drawMultiFrame).mock.lastCall![2]
+    expect([...opts.particleStates!.keys()]).toEqual(['calm', 'jumpy'])
+    const [calm, jumpy] = opts.series
+    expect(calm.swingMagnitude).toBe(0)
+    expect(jumpy.swingMagnitude).toBeGreaterThan(0.5)
+    expect(jumpy.momentum).toBe('up')
+    expect(opts.shakeState).toBeDefined()
   })
 
   it('reports the hovered candle close through onHover', () => {

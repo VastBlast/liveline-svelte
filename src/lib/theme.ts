@@ -75,6 +75,7 @@ export function resolveTheme(color: string, mode: ThemeMode): LivelinePalette {
     labelFont: '11px "SF Mono", Menlo, Monaco, "Cascadia Code", monospace',
     valueFont: '600 11px "SF Mono", Menlo, monospace',
     badgeFont: '500 11px "SF Mono", Menlo, monospace',
+    readoutFont: '400 12px "SF Mono", Menlo, monospace',
   }
 }
 

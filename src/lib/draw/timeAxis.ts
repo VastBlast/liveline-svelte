@@ -8,6 +8,8 @@ export interface TimeAxisState {
 }
 
 const FADE = 0.08
+const MIN_LABEL_SPACING = 60
+const LABEL_GAP = 16
 
 export function drawTimeAxis(
   ctx: CanvasRenderingContext2D,
@@ -36,10 +38,14 @@ export function drawTimeAxis(
 
   // Interval fully derived from target window — no dependency on the
   // interpolating display. Prevents a one-frame flicker when the transition
-  // ends and windowSecs snaps to targetWindowSecs.
+  // ends and windowSecs snaps to targetWindowSecs. Ticks need room for the
+  // text the formatter gives at that step: a 12-hour clock with a day
+  // period is wider than a 24-hour one.
   const targetPxPerSec = chartW / targetWindowSecs
   let interval = niceTimeInterval(targetWindowSecs)
-  while (interval * targetPxPerSec < 60 && interval < targetWindowSecs) {
+  while (interval < targetWindowSecs) {
+    const labelWidth = ctx.measureText(formatTime(rightEdge, interval)).width
+    if (interval * targetPxPerSec >= Math.max(MIN_LABEL_SPACING, labelWidth + LABEL_GAP)) break
     interval *= 2
   }
 
@@ -66,7 +72,7 @@ export function drawTimeAxis(
   // tracks movement, not text content. By the time labels settle, the text
   // is already correct so nothing visibly changes on stationary labels.
   for (const key of targets) {
-    const text = formatTime(key / 100)
+    const text = formatTime(key / 100, interval)
     const existing = state.labels.get(key)
     if (!existing) {
       state.labels.set(key, { alpha: 0, text })

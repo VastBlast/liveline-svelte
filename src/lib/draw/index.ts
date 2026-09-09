@@ -2,8 +2,7 @@ import type { LivelinePalette, ChartLayout, LivelinePoint, Momentum, ReferenceLi
 import { drawGrid, type GridState } from './grid'
 import { drawLine } from './line'
 import { drawDot, drawArrows, drawSimpleDot, drawMultiDot } from './dot'
-import { drawCrosshair, drawMultiCrosshair } from './crosshair'
-import type { MultiSeriesHoverEntry } from './crosshair'
+import { drawCrosshair } from './crosshair'
 import { drawReferenceLine } from './referenceLine'
 import { drawTimeAxis, type TimeAxisState } from './timeAxis'
 import { drawOrderbook, type OrderbookState } from './orderbook'
@@ -15,13 +14,11 @@ import { drawEmpty } from './empty'
 const SHAKE_DECAY_RATE = 0.002
 const SHAKE_MIN_AMPLITUDE = 0.2
 export const FADE_EDGE_WIDTH = 40
-const CROSSHAIR_FADE_MIN_PX = 5
 
-function computeScrubOpacity(distToLive: number, chartW: number, scrubAmount: number): number {
-  const fadeStart = Math.min(80, chartW * 0.3)
-  if (distToLive < CROSSHAIR_FADE_MIN_PX) return 0
-  if (distToLive >= fadeStart) return scrubAmount
-  return ((distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX)) * scrubAmount
+export interface MultiSeriesHoverEntry {
+  color: string
+  label: string
+  value: number
 }
 
 export interface ArrowState { up: number; down: number }
@@ -32,6 +29,26 @@ export interface ShakeState {
 
 export function createShakeState(): ShakeState {
   return { amplitude: 0 }
+}
+
+/** Offsets the frame by the current shake and decays it. Returns whether the context was saved. */
+function beginShake(ctx: CanvasRenderingContext2D, shake: ShakeState | undefined, dt: number): boolean {
+  if (!shake) return false
+  let translated = false
+  if (shake.amplitude > SHAKE_MIN_AMPLITUDE) {
+    ctx.save()
+    ctx.translate((Math.random() - 0.5) * 2 * shake.amplitude, (Math.random() - 0.5) * 2 * shake.amplitude)
+    translated = true
+  }
+  // Exponential decay — ~200ms of visible shake
+  shake.amplitude *= Math.pow(SHAKE_DECAY_RATE, dt / 1000)
+  if (shake.amplitude < SHAKE_MIN_AMPLITUDE) shake.amplitude = 0
+  return translated
+}
+
+/** A burst shakes the chart in proportion to the swing behind it; bursts in one frame do not stack. */
+function shakeFor(shake: ShakeState | undefined, swing: number, burst: number) {
+  if (shake) shake.amplitude = Math.max(shake.amplitude, (3 + swing * 4) * burst)
 }
 
 export interface DrawOptions {
@@ -50,13 +67,13 @@ export interface DrawOptions {
   hoverTime: number | null
   scrubAmount: number // 0 = not scrubbing, 1 = fully scrubbing (lerped)
   formatValue: (v: number) => string
-  formatTime: (t: number) => string
+  formatTime: (time: number, step?: number) => string
   gridState: GridState
   timeAxisState: TimeAxisState
   dt: number // delta time in ms for frame-rate-independent lerps
   targetWindowSecs: number // final target window (stable during transitions)
-  tooltipY: number
-  tooltipOutline: boolean
+  /** Scrub amount once the crosshair has yielded to the badge near the live dot. */
+  crosshairOpacity: number
   orderbookData?: OrderbookData
   orderbookState?: OrderbookState
   particleState?: ParticleState
@@ -79,21 +96,7 @@ export function drawFrame(
   opts: DrawOptions,
 ): void {
   // 0. Chart shake — apply offset, decay amplitude
-  const shake = opts.shakeState
-  let shakeX = 0
-  let shakeY = 0
-  if (shake && shake.amplitude > SHAKE_MIN_AMPLITUDE) {
-    shakeX = (Math.random() - 0.5) * 2 * shake.amplitude
-    shakeY = (Math.random() - 0.5) * 2 * shake.amplitude
-    ctx.save()
-    ctx.translate(shakeX, shakeY)
-  }
-  if (shake) {
-    // Exponential decay — ~200ms of visible shake
-    const decayRate = Math.pow(SHAKE_DECAY_RATE, opts.dt / 1000)
-    shake.amplitude *= decayRate
-    if (shake.amplitude < SHAKE_MIN_AMPLITUDE) shake.amplitude = 0
-  }
+  const shaking = beginShake(ctx, opts.shakeState, opts.dt)
 
   const reveal = opts.chartReveal
   const pause = opts.pauseProgress
@@ -154,10 +157,7 @@ export function drawFrame(
     const lastPt = pts[pts.length - 1]
 
     // 5. Dot — dims during scrub, fades in with reveal (0.3 → 1.0)
-    let dotScrub = opts.scrubAmount
-    if (opts.hoverX !== null && dotScrub > 0) {
-      dotScrub = computeScrubOpacity(lastPt[0] - opts.hoverX, layout.chartW, opts.scrubAmount)
-    }
+    const dotScrub = opts.crosshairOpacity
 
     // Dot appears once shape is recognizable (reveal > 0.3)
     const dotAlpha = reveal < 0.3 ? 0 : (reveal - 0.3) / 0.7
@@ -183,10 +183,8 @@ export function drawFrame(
 
     // 6. Particles — only when fully revealed
     if (opts.particleState && reveal > 0.9) {
-      const burstIntensity = spawnOnSwing(opts.particleState, lastPt, palette.line, opts)
-      if (burstIntensity > 0 && shake) {
-        shake.amplitude = (3 + opts.swingMagnitude * 4) * burstIntensity
-      }
+      const burst = spawnOnSwing(opts.particleState, lastPt, palette.line, opts)
+      if (burst > 0) shakeFor(opts.shakeState, opts.swingMagnitude, burst)
       drawParticles(ctx, opts.particleState, opts.dt)
     }
   }
@@ -202,40 +200,30 @@ export function drawFrame(
   ctx.fillRect(0, 0, layout.pad.left + fadeW, layout.h)
   ctx.restore()
 
-  // 8. Crosshair — fade out well before reaching live dot
-  if (opts.hoverX !== null && opts.hoverValue !== null && opts.hoverTime !== null && pts && pts.length > 0) {
-    const lastPt = pts[pts.length - 1]
-    const scrubOpacity = computeScrubOpacity(lastPt[0] - opts.hoverX, layout.chartW, opts.scrubAmount)
-
-    if (scrubOpacity > 0.01) {
-      drawCrosshair(ctx, layout, palette, {
-        hoverX: opts.hoverX,
-        hoverValue: opts.hoverValue,
-        hoverTime: opts.hoverTime,
-        formatValue: opts.formatValue,
-        formatTime: opts.formatTime,
-        scrubOpacity,
-        tooltipY: opts.tooltipY,
-        liveDotX: lastPt[0],
-        tooltipOutline: opts.tooltipOutline,
-      })
-    }
+  // 8. Crosshair
+  if (opts.hoverX !== null && opts.hoverValue !== null && pts && pts.length > 0) {
+    drawCrosshair(ctx, layout, palette, {
+      hoverX: opts.hoverX,
+      points: [{ y: layout.toY(opts.hoverValue), color: palette.line }],
+      opacity: opts.crosshairOpacity,
+    })
   }
 
-  // Restore shake translate
-  if (shake && (shakeX !== 0 || shakeY !== 0)) {
-    ctx.restore()
-  }
+  if (shaking) ctx.restore()
 }
 
 // ─── Multi-series draw orchestration ──────────────────────────────────────
 
 export interface MultiSeriesEntry {
+  id: string
   visible: LivelinePoint[]
   smoothValue: number
   palette: LivelinePalette
   label?: string
   alpha?: number  // series visibility alpha (0 = hidden, 1 = visible)
+  // Set when particles are on: each series is judged on its own movement.
+  momentum?: Momentum
+  swingMagnitude?: number
 }
 
 export interface MultiSeriesDrawOptions {
@@ -249,18 +237,22 @@ export interface MultiSeriesDrawOptions {
   hoverEntries: MultiSeriesHoverEntry[]
   scrubAmount: number
   formatValue: (v: number) => string
-  formatTime: (t: number) => string
+  formatTime: (time: number, step?: number) => string
   gridState: GridState
   timeAxisState: TimeAxisState
   dt: number
   targetWindowSecs: number
-  tooltipY: number
-  tooltipOutline: boolean
+  /** Scrub amount once the crosshair has yielded to the badge near the live dot. */
+  crosshairOpacity: number
   chartReveal: number
   pauseProgress: number
   now_ms: number
   /** Primary palette (from first series) for grid/axis/crosshair colors */
   primaryPalette: LivelinePalette
+  /** One emitter per series id, present when particles are on */
+  particleStates?: Map<string, ParticleState>
+  particleOptions?: DegenOptions
+  shakeState?: ShakeState
 }
 
 /**
@@ -272,6 +264,7 @@ export function drawMultiFrame(
   layout: ChartLayout,
   opts: MultiSeriesDrawOptions,
 ): void {
+  const shaking = beginShake(ctx, opts.shakeState, opts.dt)
   const palette = opts.primaryPalette
   const reveal = opts.chartReveal
 
@@ -303,7 +296,7 @@ export function drawMultiFrame(
   // During reverse morph, secondary lines fade out so only one remains at
   // chartReveal=0 — prevents alpha compounding from multiple overlapping strokes
   // looking brighter than the single standalone loading squiggly.
-  const allPts: { pts: [number, number][]; palette: LivelinePalette; label?: string; alpha: number }[] = []
+  const allPts: { series: MultiSeriesEntry; pts: [number, number][]; palette: LivelinePalette; label?: string; alpha: number }[] = []
   for (let si = 0; si < opts.series.length; si++) {
     const s = opts.series[si]
     const seriesAlpha = s.alpha ?? 1
@@ -324,7 +317,7 @@ export function drawMultiFrame(
     })
     ctx.restore()
     if (pts && pts.length > 0) {
-      allPts.push({ pts, palette: s.palette, label: s.label, alpha: seriesAlpha })
+      allPts.push({ series: s, pts, palette: s.palette, label: s.label, alpha: seriesAlpha })
     }
   }
 
@@ -371,6 +364,23 @@ export function drawMultiFrame(
     }
   }
 
+  // 5b. Particles — each series bursts from its own live dot, only when fully revealed
+  if (opts.particleStates && reveal > 0.9) {
+    for (const entry of allPts) {
+      const state = opts.particleStates.get(entry.series.id)
+      if (!state || entry.alpha < 0.5) continue
+      const swing = entry.series.swingMagnitude ?? 0
+      const burst = spawnOnSwing(state, entry.pts[entry.pts.length - 1], entry.palette.line, {
+        momentum: entry.series.momentum ?? 'flat',
+        swingMagnitude: swing,
+        dt: opts.dt,
+        particleOptions: opts.particleOptions,
+      })
+      if (burst > 0) shakeFor(opts.shakeState, swing, burst)
+    }
+    for (const state of opts.particleStates.values()) drawParticles(ctx, state, opts.dt)
+  }
+
   // 6. Left edge fade
   ctx.save()
   ctx.globalCompositeOperation = 'destination-out'
@@ -381,32 +391,16 @@ export function drawMultiFrame(
   ctx.fillRect(0, 0, layout.pad.left + FADE_EDGE_WIDTH, layout.h)
   ctx.restore()
 
-  // 7. Multi-series crosshair — fade out near live dots (same logic as single-series)
-  if (opts.hoverX !== null && opts.hoverTime !== null && opts.hoverEntries.length > 0 && allPts.length > 0 && opts.scrubAmount > 0.01) {
-    // Find rightmost live dot X (skip hidden series)
-    let maxLiveDotX = 0
-    for (const entry of allPts) {
-      if (entry.alpha < 0.01) continue
-      const lastX = entry.pts[entry.pts.length - 1][0]
-      if (lastX > maxLiveDotX) maxLiveDotX = lastX
-    }
-
-    const scrubOpacity = computeScrubOpacity(maxLiveDotX - opts.hoverX, layout.chartW, opts.scrubAmount)
-
-    if (scrubOpacity > 0.01) {
-      drawMultiCrosshair(ctx, layout, palette, {
-        hoverX: opts.hoverX,
-        hoverTime: opts.hoverTime,
-        entries: opts.hoverEntries,
-        formatValue: opts.formatValue,
-        formatTime: opts.formatTime,
-        scrubOpacity,
-        tooltipY: opts.tooltipY,
-        tooltipOutline: opts.tooltipOutline,
-        liveDotX: maxLiveDotX,
-      })
-    }
+  // 7. Crosshair
+  if (opts.hoverX !== null && opts.hoverEntries.length > 0 && allPts.length > 0) {
+    drawCrosshair(ctx, layout, palette, {
+      hoverX: opts.hoverX,
+      points: opts.hoverEntries.map((entry) => ({ y: layout.toY(entry.value), color: entry.color })),
+      opacity: opts.crosshairOpacity,
+    })
   }
+
+  if (shaking) ctx.restore()
 }
 
 // ─── Candlestick draw orchestration ────────────────────────────────────────
@@ -435,13 +429,13 @@ export interface CandleDrawOptions {
   hoverTime: number | null
   hoveredCandle: CandlePoint | null
   formatValue: (v: number) => string
-  formatTime: (t: number) => string
+  formatTime: (time: number, step?: number) => string
   gridState: GridState
   timeAxisState: TimeAxisState
   dt: number
   targetWindowSecs: number
-  tooltipY: number
-  tooltipOutline: boolean
+  /** Scrub amount once the crosshair has yielded to the badge near the live dot. */
+  crosshairOpacity: number
   // Line data — drawLine handles morphY, alpha, color, dot position
   lineVisible: LivelinePoint[]
   lineSmoothValue: number
@@ -650,17 +644,10 @@ export function drawCandleFrame(
   }
 
   // 9. Crosshair — only when mostly revealed (70%+)
-  if (opts.chartReveal > 0.7 && opts.hoveredCandle && opts.hoverX !== null && opts.scrubAmount > 0.01) {
-    const crosshairOptions = {
-      hoverX: opts.hoverX,
-      candle: opts.hoveredCandle,
-      hoverTime: opts.hoverTime ?? 0,
-      formatValue: opts.formatValue,
-      formatTime: opts.formatTime,
-      opacity: opts.scrubAmount,
-    }
+  if (opts.chartReveal > 0.7 && opts.hoveredCandle && opts.hoverX !== null && opts.crosshairOpacity > 0.01) {
+    const crosshairOptions = { hoverX: opts.hoverX, opacity: opts.crosshairOpacity }
     if (opts.lineModeProg > 0.5) {
-      drawLineModeCrosshair(ctx, layout, palette, crosshairOptions)
+      drawLineModeCrosshair(ctx, layout, palette, { ...crosshairOptions, y: layout.toY(opts.hoveredCandle.close) })
     } else {
       drawCandleCrosshair(ctx, layout, palette, crosshairOptions)
     }

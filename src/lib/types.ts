@@ -92,17 +92,14 @@ export type LivelineProps = Omit<SvelteHTMLElements['div'], 'children'> & {
   // Badge
   badgeVariant?: BadgeVariant  // Badge visual style: 'default' (accent) or 'minimal' (white + grey text)
 
-  // Crosshair
-  tooltipY?: number        // Vertical offset for crosshair tooltip text (default: 14)
-  tooltipOutline?: boolean // Stroke outline around crosshair tooltip text for readability (default: true)
-
   // Orderbook
   orderbook?: OrderbookData
 
   // Optional
   referenceLine?: ReferenceLine
   formatValue?: (v: number) => string
-  formatTime?: (t: number) => string
+  /** `step` is the seconds a label stands for: an axis tick's interval or a candle's width; absent for an exact moment. */
+  formatTime?: (time: number, step?: number) => string
   lerpSpeed?: number
   padding?: Padding
   onHover?: (point: HoverPoint | null) => void
@@ -188,6 +185,7 @@ export interface LivelinePalette {
   labelFont: string
   valueFont: string
   badgeFont: string
+  readoutFont: string
 }
 
 export interface ChartLayout {

@@ -102,7 +102,7 @@ When `mode="candle"`, pass `candles`, `liveCandle`, and `candleWidth`. If you al
 | `showSeriesToggle` | `boolean` | `true` | Show built-in series chips; disable to manage series externally |
 | `seriesToggleCompact` | `boolean` | `false` | Dot-only series toggle chips |
 
-When `series` is provided, Liveline disables single-series badge, fill, and momentum affordances automatically, and the right gutter shrinks to fit the grid labels.
+When `series` is provided, Liveline disables single-series badge, fill, and momentum affordances automatically, and the right gutter shrinks to fit the grid labels. `degen` particles burst from each series' own live dot.
 
 ### State
 
@@ -123,10 +123,7 @@ When `series` is provided, Liveline disables single-series badge, fill, and mome
 
 ### Crosshair
 
-| Prop | Type | Default | Description |
-|------|------|---------|-------------|
-| `tooltipY` | `number` | `14` | Tooltip vertical offset |
-| `tooltipOutline` | `boolean` | `true` | Stroke outline on tooltip text |
+While scrubbing, the values and time at the crosshair are read out in a band above the plot, so they never cover the lines. The band wraps on narrow charts and is reserved whenever `scrub` is on, sized for the live values, so the plot does not move when a hover starts. With a badge, the crosshair fades out as it nears the live dot, since the badge shows that value.
 
 ### Orderbook
 
@@ -140,7 +137,7 @@ When `series` is provided, Liveline disables single-series badge, fill, and mome
 |------|------|---------|-------------|
 | `referenceLine` | `ReferenceLine` | — | Horizontal reference line `{ value, label? }` |
 | `formatValue` | `(v: number) => string` | `v.toFixed(2)` | Value formatter |
-| `formatTime` | `(t: number) => string` | `HH:MM:SS` | Time formatter |
+| `formatTime` | `(time, step?) => string` | `HH:MM:SS`, `HH:MM` from a minute up | Time formatter. `step` is the seconds a label stands for: an axis tick's interval or a candle's width, absent for the exact moment under the crosshair |
 | `lerpSpeed` | `number` | `0.08` | Interpolation speed |
 | `padding` | `Padding` | `{ top: 12, right: auto, bottom: 28, left: 12 }` | Chart padding override; `right` defaults to 80 with a badge, 54 with grid labels, else 12 |
 | `onHover` | `(point \| null) => void` | — | Hover callback with `{ time, value, x, y }` |
